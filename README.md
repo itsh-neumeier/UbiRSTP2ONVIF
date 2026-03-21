@@ -138,6 +138,48 @@ If `ADMIN_PASSWORD` is not provided and the database is empty, the backend gener
 
 You can also start from [`.env.example`](./.env.example) for local configuration.
 
+### 3. Portainer Stack Notes
+
+If you deploy this stack through Portainer, keep the control plane simple first:
+
+- use `http://<host-ip>:8080` in the browser, not `https://...`
+- avoid browser-blocked ports such as `10080`
+- set `APP_BASE_URL` to the real address users or recorders reach, for example `http://192.168.140.30:8080`
+- when you use a published host port, keep `ports` and `PORT` aligned, for example `8080:8080`
+- do not keep `build:` in the Portainer stack if you want to run the published GHCR image directly
+
+Minimal Portainer control-plane example:
+
+```yaml
+services:
+  control-plane:
+    image: ghcr.io/itsh-neumeier/ubirstp2onvif:latest
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: 8080
+      DATA_DIR: /data
+      APP_BASE_URL: http://192.168.140.30:8080
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: change-me-now
+      ONVIF_DISCOVERY_ENABLED: "false"
+    volumes:
+      - ubirstp2onvif-control-plane-data:/data
+    restart: unless-stopped
+
+volumes:
+  ubirstp2onvif-control-plane-data:
+```
+
+Worker-specific Portainer notes:
+
+- UniFi-facing workers should use their own LAN IP, typically through `macvlan` or `ipvlan`
+- for those dedicated-IP workers, `APP_BASE_URL` must point to the worker IP, not the control-plane IP
+- workers usually do not need published host ports when the recorder reaches the worker IP directly
+- publish `3702/udp` only if that specific worker should answer ONVIF discovery on the host network
+- `go2rtc` RTSP on `8554` normally stays inside the worker namespace; only publish it if you explicitly want host-side testing
+- the control plane can generate per-camera compose previews, but Portainer still needs one worker service per camera identity
+
 ## Configuration
 
 | Variable | Default | Description |

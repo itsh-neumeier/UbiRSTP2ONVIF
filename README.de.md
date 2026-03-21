@@ -140,6 +140,48 @@ Wenn `ADMIN_PASSWORD` nicht gesetzt ist und noch keine Datenbank existiert, erze
 
 Fuer die lokale Konfiguration kannst du auch bei [`.env.example`](./.env.example) starten.
 
+### 3. Hinweise fuer Portainer-Stacks
+
+Wenn du den Stack ueber Portainer ausrollst, starte zuerst mit einer einfachen Control Plane:
+
+- im Browser `http://<host-ip>:8080` verwenden, nicht `https://...`
+- keine browsergesperrten Ports wie `10080` verwenden
+- `APP_BASE_URL` muss auf die echte von Benutzern oder Recordern erreichbare Adresse zeigen, zum Beispiel `http://192.168.140.30:8080`
+- wenn du einen Host-Port veroeffentlichst, muessen `ports` und `PORT` zusammenpassen, zum Beispiel `8080:8080`
+- `build:` im Portainer-Stack weglassen, wenn direkt das veroeffentlichte GHCR-Image genutzt werden soll
+
+Minimales Portainer-Beispiel fuer die Control Plane:
+
+```yaml
+services:
+  control-plane:
+    image: ghcr.io/itsh-neumeier/ubirstp2onvif:latest
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: 8080
+      DATA_DIR: /data
+      APP_BASE_URL: http://192.168.140.30:8080
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: change-me-now
+      ONVIF_DISCOVERY_ENABLED: "false"
+    volumes:
+      - ubirstp2onvif-control-plane-data:/data
+    restart: unless-stopped
+
+volumes:
+  ubirstp2onvif-control-plane-data:
+```
+
+Worker-spezifische Hinweise fuer Portainer:
+
+- UniFi-seitige Worker sollten eine eigene LAN-IP bekommen, typischerweise ueber `macvlan` oder `ipvlan`
+- bei solchen dedizierten Workern muss `APP_BASE_URL` auf die Worker-IP zeigen, nicht auf die IP der Control Plane
+- Worker brauchen normalerweise keine veroeffentlichten Host-Ports, wenn der Recorder die Worker-IP direkt erreicht
+- `3702/udp` nur dann veroeffentlichen, wenn genau dieser Worker ONVIF-Discovery ueber das Host-Netz beantworten soll
+- `go2rtc` auf `8554` bleibt im Normalfall im Namespace des Workers; nur fuer explizite Host-Tests muss dieser Port nach aussen freigegeben werden
+- die Control Plane kann pro Kamera Compose-Vorschauen erzeugen, aber in Portainer bleibt weiterhin ein eigener Worker-Service pro Kameraidentitaet noetig
+
 ## Konfiguration
 
 | Variable | Standard | Beschreibung |
