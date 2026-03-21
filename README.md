@@ -2,6 +2,10 @@
 
 UbiRSTP2ONVIF is a Docker-first web application for managing existing RTSP sources and exposing them through ONVIF-style camera endpoints. The project is designed for recorder environments that expect ONVIF-compatible devices, with an emphasis on stable administration, safe credential handling, and maintainable deployment.
 
+For UniFi Protect, each virtual camera must be reachable on its own dedicated LAN IP. A shared IP with multiple ONVIF streams is not enough, because UniFi does not offer stream selection behind a single camera address.
+
+The current deployment concept therefore treats `go2rtc` as a sidecar that runs in the worker's network namespace. That way the ONVIF endpoints and the local RTSP service share the same worker IP, which matches how UniFi expects third-party cameras to appear.
+
 ## Current Scope
 
 - Fastify + TypeScript backend with SQLite persistence
@@ -11,6 +15,8 @@ UbiRSTP2ONVIF is a Docker-first web application for managing existing RTSP sourc
 - Minimal ONVIF device/media SOAP endpoints per configured stream
 - Optional WS-Discovery responder for active streams on UDP `3702`
 - Docker image build, GitHub Actions CI, and GHCR release workflow
+- Deployment guidance for a control-plane plus worker model where each UniFi-facing worker owns one IP
+- Worker plus `go2rtc` sidecar guidance where ONVIF and local RTSP share the same worker IP
 
 ## Important Compatibility Note
 
@@ -23,6 +29,20 @@ This implementation focuses on the control plane and recorder-facing ONVIF servi
 Snapshot responses currently use a generated placeholder image endpoint, not a real camera still-image fetch.
 
 If a target NVR requires deeper ONVIF coverage, additional SOAP operations or media proxying may still be needed.
+
+For the UniFi-specific deployment shape, the recommended model is:
+
+- one control-plane instance for auth, persistence, and the Web UI
+- one worker instance per virtual camera
+- one dedicated LAN IP per worker, preferably via `macvlan` or `ipvlan`
+- one `go2rtc` sidecar per worker, sharing the worker network namespace via `network_mode: service:<worker>`
+- no shared camera IP for multiple UniFi-adopted streams
+
+If you prefer not to hand-write per-worker YAML, a static compose generator works well: keep a worker template, substitute camera name, worker IP, and upstream RTSP settings, then emit one service per camera.
+
+For worker-side media handling, `go2rtc` is a good fit because it can expose RTSP on `8554` and its API on `1984`. Those ports are assumptions, not hard requirements, so a generator or overlay can change them per worker if needed.
+
+Advanced deployments may also chain `go2rtc` or `ffmpeg` transforms for things like blur masks, fisheye handling, or stream repackaging. That is optional and should stay separate from the basic one-camera-per-IP path.
 
 ## Repository Layout
 
@@ -50,26 +70,62 @@ CHANGELOG.md         Keep a Changelog structure
 
 ```yaml
 services:
-  ubirstp2onvif:
+  control-plane:
     image: ghcr.io/itsh-neumeier/ubirstp2onvif:latest
     build:
       context: .
     ports:
       - "8080:8080"
-      - "3702:3702/udp"
     environment:
       PORT: 8080
       DATA_DIR: /data
       APP_BASE_URL: http://localhost:8080
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: change-me-now
-      ONVIF_DISCOVERY_ENABLED: "true"
+      ONVIF_DISCOVERY_ENABLED: "false"
     volumes:
-      - ubirstp2onvif-data:/data
+      - ubirstp2onvif-control-plane-data:/data
+    restart: unless-stopped
+
+  worker-template:
+    image: ghcr.io/itsh-neumeier/ubirstp2onvif:latest
+    profiles:
+      - workers
+    # Replace this placeholder with a dedicated macvlan or ipvlan network.
+    # UniFi-facing workers should not share one IP.
+    environment:
+      PORT: 8080
+      DATA_DIR: /data
+      APP_BASE_URL: http://192.168.10.201:8080
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: change-me-now
+      ONVIF_DISCOVERY_ENABLED: "true"
+      ONVIF_DISCOVERY_PORT: 3702
+    volumes:
+      - ubirstp2onvif-worker-data:/data
+    restart: unless-stopped
+
+  go2rtc-sidecar:
+    image: alexxit/go2rtc:latest
+    profiles:
+      - workers
+    network_mode: service:worker-template
+    depends_on:
+      - worker-template
+    # go2rtc shares the worker network namespace, so it uses the same LAN IP.
+    # Keep the ports configurable for compose generators and previews.
+    environment:
+      GO2RTC_RTSP_PORT: 8554
+      GO2RTC_API_PORT: 1984
+      GO2RTC_CONFIG: /config/go2rtc.yaml
+    volumes:
+      - ubirstp2onvif-go2rtc-data:/config
     restart: unless-stopped
 
 volumes:
-  ubirstp2onvif-data:
+  ubirstp2onvif-control-plane-data:
+  ubirstp2onvif-worker-data:
+  ubirstp2onvif-go2rtc-data:
 ```
 
 ### 2. Open the Web UI
@@ -96,6 +152,17 @@ You can also start from [`.env.example`](./.env.example) for local configuration
 | `ONVIF_DISCOVERY_ENABLED` | `true` | Enable WS-Discovery responder |
 | `ONVIF_DISCOVERY_PORT` | `3702` | UDP discovery port |
 | `GITHUB_URL` | placeholder | GitHub link shown in the UI footer |
+| `GO2RTC_RTSP_PORT` | `8554` | go2rtc RTSP listen port in worker sidecars |
+| `GO2RTC_API_PORT` | `1984` | go2rtc API listen port in worker sidecars |
+| `GO2RTC_CONFIG_PATH` | `/config/go2rtc.yaml` | Path to the worker-local go2rtc config |
+
+UniFi worker notes:
+
+- `APP_BASE_URL` should point at the worker's dedicated LAN IP
+- `ONVIF_DISCOVERY_ENABLED` is usually `true` on a worker and `false` on the control plane
+- `3702/udp` matters for workers that actively advertise themselves on the network
+- `macvlan` or `ipvlan` is the right choice when the worker must appear as a separate camera IP
+- `go2rtc` typically listens on `8554` for RTSP and `1984` for its API, but both should stay configurable
 
 ## Data and Migrations
 
@@ -103,6 +170,8 @@ You can also start from [`.env.example`](./.env.example) for local configuration
 - Instance secret file: `${DATA_DIR}/instance-secrets.json`
 - Schema changes are applied automatically on startup through embedded migrations
 - Persistent volumes are intended to remain forward-compatible across releases
+- If you split the deployment into control-plane and worker containers, keep one persistent volume per worker so credentials and runtime state stay isolated
+- If you add `go2rtc` sidecars, keep one config volume per worker-sidecar pair so the generated relay settings remain isolated too
 
 ## Admin CLI
 
@@ -133,6 +202,8 @@ Included tests cover:
 - admin user creation
 - ONVIF stream URI responses
 - frontend login flow, language/theme toggle, and stream editor loading
+- UniFi deployment guidance for the dedicated-IP worker model
+- worker plus `go2rtc` sidecar guidance for shared-IP namespace deployments
 
 ## CI and Releases
 

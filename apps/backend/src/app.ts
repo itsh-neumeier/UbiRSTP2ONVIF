@@ -49,26 +49,31 @@ export async function buildApp() {
 
   await app.register(cookie, { secret: config.cookieSecret });
   await app.register(authContextPlugin, { db, config });
-  await ensureDefaultAdmin(db, config, app.log);
-
   await registerSystemRoutes(app);
-  await registerAuthRoutes(app);
-  await registerUserRoutes(app);
-  await registerStreamRoutes(app);
   await registerOnvifRoutes(app);
 
+  if (config.appRole === "control-plane") {
+    await ensureDefaultAdmin(db, config, app.log);
+    await registerAuthRoutes(app);
+    await registerUserRoutes(app);
+    await registerStreamRoutes(app);
+  }
+
   const webDist = resolveWebDist();
-  if (existsSync(webDist)) {
+  if (config.appRole === "control-plane" && existsSync(webDist)) {
     await app.register(fastifyStatic, {
       root: webDist,
       wildcard: false
     });
   }
 
-  let healthTimer: NodeJS.Timeout | null = setInterval(() => {
-    void runScheduledHealthChecks(db, config, app.log);
-  }, config.healthcheckIntervalSeconds * 1000);
-  healthTimer.unref();
+  let healthTimer: NodeJS.Timeout | null = null;
+  if (config.appRole === "control-plane") {
+    healthTimer = setInterval(() => {
+      void runScheduledHealthChecks(db, config, app.log);
+    }, config.healthcheckIntervalSeconds * 1000);
+    healthTimer.unref();
+  }
 
   const discoverySocket = startOnvifDiscovery(app);
 

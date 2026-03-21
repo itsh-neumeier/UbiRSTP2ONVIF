@@ -62,5 +62,23 @@ export const migrations: Migration[] = [
       ALTER TABLE streams ADD COLUMN last_latency_ms INTEGER;
       ALTER TABLE streams ADD COLUMN recorder_notes TEXT NOT NULL DEFAULT '';
     `
+  },
+  {
+    id: "003_add_stream_worker_fields",
+    sql: `
+      ALTER TABLE streams ADD COLUMN worker_mode TEXT NOT NULL DEFAULT 'shared';
+      ALTER TABLE streams ADD COLUMN advertised_host TEXT;
+      ALTER TABLE streams ADD COLUMN worker_http_port INTEGER;
+      ALTER TABLE streams ADD COLUMN worker_network_name TEXT;
+    `
+  },
+  {
+    id: "004_add_stream_go2rtc_fields",
+    sql: `
+      ALTER TABLE streams ADD COLUMN go2rtc_mode TEXT NOT NULL DEFAULT 'direct';
+      ALTER TABLE streams ADD COLUMN go2rtc_video TEXT;
+      ALTER TABLE streams ADD COLUMN go2rtc_audio TEXT;
+      ALTER TABLE streams ADD COLUMN go2rtc_raw TEXT;
+    `
   }
 ];

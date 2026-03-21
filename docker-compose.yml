@@ -1,19 +1,19 @@
 services:
-  ubirstp2onvif:
+  control-plane:
     build:
       context: .
     image: ghcr.io/itsh-neumeier/ubirstp2onvif:latest
     ports:
       - "8080:8080"
-      - "3702:3702/udp"
     environment:
       PORT: 8080
       DATA_DIR: /data
       APP_BASE_URL: http://localhost:8080
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: change-me-now
+      ONVIF_DISCOVERY_ENABLED: "false"
     volumes:
-      - ubirstp2onvif-data:/data
+      - ubirstp2onvif-control-plane-data:/data
     security_opt:
       - no-new-privileges:true
     healthcheck:
@@ -24,5 +24,45 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  worker-template:
+    image: ghcr.io/itsh-neumeier/ubirstp2onvif:latest
+    profiles:
+      - workers
+    # This template documents the desired deployment shape for UniFi:
+    # one worker equals one camera IP. Replace the network and IP settings
+    # with a dedicated macvlan/ipvlan network before using it in production.
+    environment:
+      PORT: 8080
+      DATA_DIR: /data
+      APP_BASE_URL: http://192.168.10.201:8080
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: change-me-now
+      ONVIF_DISCOVERY_ENABLED: "true"
+      ONVIF_DISCOVERY_PORT: 3702
+    volumes:
+      - ubirstp2onvif-worker-data:/data
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  go2rtc-sidecar:
+    image: alexxit/go2rtc:latest
+    profiles:
+      - workers
+    network_mode: service:worker-template
+    depends_on:
+      - worker-template
+    # go2rtc shares the worker network namespace, so it uses the same LAN IP.
+    # Leave the ports configurable so a generator can tune them per worker.
+    environment:
+      GO2RTC_RTSP_PORT: 8554
+      GO2RTC_API_PORT: 1984
+      GO2RTC_CONFIG: /config/go2rtc.yaml
+    volumes:
+      - ubirstp2onvif-go2rtc-data:/config
+    restart: unless-stopped
+
 volumes:
-  ubirstp2onvif-data:
+  ubirstp2onvif-control-plane-data:
+  ubirstp2onvif-worker-data:
+  ubirstp2onvif-go2rtc-data:

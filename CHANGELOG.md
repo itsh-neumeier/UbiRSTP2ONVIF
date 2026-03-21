@@ -7,6 +7,26 @@ and [Semantic Versioning 2.0.0](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-21
+
+### Added
+- Added a control-plane and worker deployment model for dedicated per-camera ONVIF worker instances.
+- Added worker deployment metadata, compose preview generation, and go2rtc sidecar configuration previews per stream.
+- Added worker-mode ONVIF root endpoints for single-camera IP deployments and tests covering worker routing and compose preview output.
+- Added go2rtc stream pipeline fields for direct restreams or FFmpeg-based advanced transforms such as blur masks or fisheye correction.
+
+### Changed
+- Documented the UniFi-specific one-camera-per-dedicated-IP deployment model.
+- Added control-plane, worker, and `go2rtc` sidecar compose examples plus worker-oriented environment hints.
+- Documented configurable `go2rtc` ports and optional FFmpeg/go2rtc transform chains for advanced deployments.
+- Refined the WebUI with multi-page navigation, compact flag-based language switching, favicon support, and dismissing toast notifications.
+
+## [0.1.2] - 2026-03-21
+
+### Fixed
+- Login/session handling now works correctly behind plain HTTP deployments such as Portainer stacks without forcing `Secure` cookies.
+- Environment boolean parsing now correctly understands values like `false`, `0`, `no`, and `off`.
+
 ## [0.1.1] - 2026-03-21
 
 ### Fixed

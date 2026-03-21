@@ -27,8 +27,28 @@ function getOperation(body: string): string {
   return operations.find((operation) => new RegExp(`<\\/?(?:\\w+:)?${operation}\\b`).test(body)) ?? "Unknown";
 }
 
+function getOnvifPath(app: FastifyInstance, streamId: string, suffix: "device_service" | "media_service" | "snapshot") {
+  return app.config.appRole === "worker" ? `/onvif/${suffix}` : `/onvif/${streamId}/${suffix}`;
+}
+
+function getOnvifUrl(app: FastifyInstance, streamId: string, suffix: "device_service" | "media_service" | "snapshot") {
+  return `${app.config.baseUrl}${getOnvifPath(app, streamId, suffix)}`;
+}
+
+function getOnvifStreams(app: FastifyInstance) {
+  const streams = listStreams(app.db).filter((stream) => Boolean(stream.active));
+  if (app.config.appRole === "worker") {
+    return streams.filter((stream) => stream.id === app.config.workerStreamId);
+  }
+  return streams;
+}
+
+function resolveStreamId(app: FastifyInstance, streamId?: string) {
+  return app.config.appRole === "worker" ? app.config.workerStreamId : streamId ?? null;
+}
+
 function discoveryXml(app: FastifyInstance, streamId: string, relatesTo: string) {
-  const endpoint = `${app.config.baseUrl}/onvif/${streamId}/device_service`;
+  const endpoint = getOnvifUrl(app, streamId, "device_service");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <e:Envelope xmlns:e="http://www.w3.org/2003/05/soap-envelope" xmlns:w="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:d="http://schemas.xmlsoap.org/ws/2005/04/discovery" xmlns:dn="http://www.onvif.org/ver10/network/wsdl">
   <e:Header>
@@ -60,7 +80,7 @@ export async function registerOnvifRoutes(app: FastifyInstance): Promise<void> {
       return;
     }
     reply.send({
-      endpoints: listStreams(app.db).map((stream) => ({
+      endpoints: getOnvifStreams(app).map((stream) => ({
         id: stream.id,
         active: Boolean(stream.active),
         ...serializeStream(stream, app.config).onvif
@@ -68,8 +88,9 @@ export async function registerOnvifRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  const handleSoap = async (streamId: string, body: string, type: "device" | "media") => {
-    const stream = getStreamById(app.db, streamId);
+  const handleSoap = async (streamId: string | null, body: string, type: "device" | "media") => {
+    const resolvedStreamId = resolveStreamId(app, streamId ?? undefined);
+    const stream = resolvedStreamId ? getStreamById(app.db, resolvedStreamId) : null;
     if (!stream) {
       return {
         code: 404,
@@ -103,12 +124,12 @@ export async function registerOnvifRoutes(app: FastifyInstance): Promise<void> {
               <tds:GetServicesResponse xmlns:tds="http://www.onvif.org/ver10/device/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema">
                 <tds:Service>
                   <tds:Namespace>http://www.onvif.org/ver10/device/wsdl</tds:Namespace>
-                  <tds:XAddr>${app.config.baseUrl}/onvif/${stream.id}/device_service</tds:XAddr>
+                  <tds:XAddr>${getOnvifUrl(app, stream.id, "device_service")}</tds:XAddr>
                   <tds:Version><tt:Major>2</tt:Major><tt:Minor>0</tt:Minor></tds:Version>
                 </tds:Service>
                 <tds:Service>
                   <tds:Namespace>http://www.onvif.org/ver10/media/wsdl</tds:Namespace>
-                  <tds:XAddr>${app.config.baseUrl}/onvif/${stream.id}/media_service</tds:XAddr>
+                  <tds:XAddr>${getOnvifUrl(app, stream.id, "media_service")}</tds:XAddr>
                   <tds:Version><tt:Major>2</tt:Major><tt:Minor>0</tt:Minor></tds:Version>
                 </tds:Service>
               </tds:GetServicesResponse>
@@ -120,8 +141,8 @@ export async function registerOnvifRoutes(app: FastifyInstance): Promise<void> {
             payload: soapEnvelope(`
               <tds:GetCapabilitiesResponse xmlns:tds="http://www.onvif.org/ver10/device/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema">
                 <tds:Capabilities>
-                  <tt:Media XAddr="${app.config.baseUrl}/onvif/${stream.id}/media_service" />
-                  <tt:Device XAddr="${app.config.baseUrl}/onvif/${stream.id}/device_service" />
+                  <tt:Media XAddr="${getOnvifUrl(app, stream.id, "media_service")}" />
+                  <tt:Device XAddr="${getOnvifUrl(app, stream.id, "device_service")}" />
                 </tds:Capabilities>
               </tds:GetCapabilitiesResponse>
             `)
@@ -209,9 +230,9 @@ export async function registerOnvifRoutes(app: FastifyInstance): Promise<void> {
           return {
             code: 200,
             payload: soapEnvelope(`
-              <trt:GetSnapshotUriResponse xmlns:trt="http://www.onvif.org/ver10/media/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema">
+                <trt:GetSnapshotUriResponse xmlns:trt="http://www.onvif.org/ver10/media/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema">
                 <trt:MediaUri>
-                  <tt:Uri>${app.config.baseUrl}/onvif/${stream.id}/snapshot</tt:Uri>
+                  <tt:Uri>${getOnvifUrl(app, stream.id, "snapshot")}</tt:Uri>
                   <tt:InvalidAfterConnect>false</tt:InvalidAfterConnect>
                   <tt:InvalidAfterReboot>false</tt:InvalidAfterReboot>
                   <tt:Timeout>PT5S</tt:Timeout>
@@ -244,7 +265,8 @@ export async function registerOnvifRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/onvif/:streamId/snapshot", async (request, reply) => {
     const params = request.params as { streamId: string };
-    const stream = getStreamById(app.db, params.streamId);
+    const resolvedStreamId = resolveStreamId(app, params.streamId);
+    const stream = resolvedStreamId ? getStreamById(app.db, resolvedStreamId) : null;
     if (!stream) {
       reply.code(404).type("text/plain; charset=utf-8").send("Snapshot not available.");
       return;
@@ -263,6 +285,41 @@ export async function registerOnvifRoutes(app: FastifyInstance): Promise<void> {
         </svg>
       `);
   });
+
+  if (app.config.appRole === "worker") {
+    app.post("/onvif/device_service", async (request, reply) => {
+      const body = typeof request.body === "string" ? request.body : String(request.body ?? "");
+      const result = await handleSoap(null, body, "device");
+      reply.type("application/soap+xml; charset=utf-8").code(result.code).send(result.payload);
+    });
+
+    app.post("/onvif/media_service", async (request, reply) => {
+      const body = typeof request.body === "string" ? request.body : String(request.body ?? "");
+      const result = await handleSoap(null, body, "media");
+      reply.type("application/soap+xml; charset=utf-8").code(result.code).send(result.payload);
+    });
+
+    app.get("/onvif/snapshot", async (_request, reply) => {
+      const stream = app.config.workerStreamId ? getStreamById(app.db, app.config.workerStreamId) : null;
+      if (!stream) {
+        reply.code(404).type("text/plain; charset=utf-8").send("Snapshot not available.");
+        return;
+      }
+
+      reply
+        .type("image/svg+xml; charset=utf-8")
+        .send(`
+          <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+            <rect width="1280" height="720" fill="#0f172a"/>
+            <rect x="40" y="40" width="1200" height="640" rx="28" fill="#111c30" stroke="#334155" stroke-width="4"/>
+            <text x="80" y="140" fill="#e2e8f0" font-family="Arial, sans-serif" font-size="44">UbiRSTP2ONVIF</text>
+            <text x="80" y="210" fill="#93c5fd" font-family="Arial, sans-serif" font-size="30">${stream.name}</text>
+            <text x="80" y="280" fill="#94a3b8" font-family="Arial, sans-serif" font-size="24">Snapshot placeholder</text>
+            <text x="80" y="330" fill="#64748b" font-family="Arial, sans-serif" font-size="20">Configure a real snapshot proxy if your recorder requires still-image fetches.</text>
+          </svg>
+        `);
+    });
+  }
 }
 
 export function startOnvifDiscovery(app: FastifyInstance): Socket | null {
@@ -281,7 +338,7 @@ export function startOnvifDiscovery(app: FastifyInstance): Socket | null {
       return;
     }
     const relatesTo = xml.match(/<\w*:MessageID>(.*?)<\/\w*:MessageID>/)?.[1] ?? `urn:uuid:${randomUUID()}`;
-    const streams = listStreams(app.db).filter((stream) => Boolean(stream.active));
+    const streams = getOnvifStreams(app);
     for (const stream of streams) {
       socket.send(discoveryXml(app, stream.id, relatesTo), remote.port, remote.address);
     }

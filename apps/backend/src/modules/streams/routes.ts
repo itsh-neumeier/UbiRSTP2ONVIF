@@ -4,6 +4,7 @@ import { z } from "zod";
 import { deleteStream, getStreamById, listStreams } from "../../db/database.js";
 import { requireAuth } from "../../plugins/auth-context.js";
 import {
+  buildWorkerDeploymentSpec,
   createStreamWithValidation,
   runStreamHealthCheck,
   serializeStream,
@@ -22,7 +23,15 @@ const streamSchema = z.object({
   onvifManufacturer: z.string().max(120).optional().nullable(),
   onvifModel: z.string().max(120).optional().nullable(),
   onvifHardwareId: z.string().max(120).optional().nullable(),
-  onvifFirmwareVersion: z.string().max(120).optional().nullable()
+  onvifFirmwareVersion: z.string().max(120).optional().nullable(),
+  workerMode: z.enum(["shared", "dedicated"]).default("shared"),
+  advertisedHost: z.string().max(255).optional().nullable(),
+  workerHttpPort: z.coerce.number().int().positive().max(65535).optional().nullable(),
+  workerNetworkName: z.string().max(120).optional().nullable(),
+  go2rtcMode: z.enum(["direct", "ffmpeg"]).default("direct"),
+  go2rtcVideo: z.string().max(120).optional().nullable(),
+  go2rtcAudio: z.string().max(120).optional().nullable(),
+  go2rtcRaw: z.string().max(4000).optional().nullable()
 });
 
 const patchSchema = streamSchema.partial();
@@ -55,6 +64,22 @@ export async function registerStreamRoutes(app: FastifyInstance): Promise<void> 
       return;
     }
     reply.send({ stream: serializeStream(stream, app.config) });
+  });
+
+  app.get("/api/streams/:streamId/compose", async (request, reply) => {
+    if (!requireAuth(request, reply)) {
+      return;
+    }
+    const params = request.params as { streamId: string };
+    const stream = getStreamById(app.db, params.streamId);
+    if (!stream) {
+      reply.code(404).send({ error: "Stream not found." });
+      return;
+    }
+    reply.send({
+      stream: serializeStream(stream, app.config),
+      deployment: buildWorkerDeploymentSpec(stream, app.config)
+    });
   });
 
   app.patch("/api/streams/:streamId", async (request, reply) => {

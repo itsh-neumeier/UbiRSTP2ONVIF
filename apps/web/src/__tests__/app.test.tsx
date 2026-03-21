@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { App } from "../app";
@@ -27,7 +27,7 @@ describe("App", () => {
       .mockImplementationOnce(() =>
         jsonResponse({
           appName: "UbiRSTP2ONVIF",
-          version: "0.1.1",
+          version: "0.2.0",
           githubUrl: "https://github.com/itsh-neumeier/UbiRSTP2ONVIF",
           baseUrl: "http://localhost:8080",
           locale: "en",
@@ -63,7 +63,7 @@ describe("App", () => {
     fetchMock.mockImplementationOnce(() =>
       jsonResponse({
         appName: "UbiRSTP2ONVIF",
-        version: "0.1.1",
+        version: "0.2.0",
         githubUrl: "https://github.com/itsh-neumeier/UbiRSTP2ONVIF",
         baseUrl: "http://localhost:8080",
         locale: "en",
@@ -74,11 +74,43 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: /de/i }));
+    await user.selectOptions(await screen.findByLabelText(/language/i), "de");
     expect(screen.getByRole("heading", { name: /anmelden/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /dark|light/i }));
     expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+
+  it("shows error toasts temporarily on failed login", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock
+        .mockImplementationOnce(() =>
+          jsonResponse({
+            appName: "UbiRSTP2ONVIF",
+            version: "0.2.0",
+            githubUrl: "https://github.com/itsh-neumeier/UbiRSTP2ONVIF",
+            baseUrl: "http://localhost:8080",
+            locale: "en",
+            authenticated: false
+          })
+        )
+        .mockImplementationOnce(() => jsonResponse({ error: "Authentication required." }, 401));
+
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<App />);
+
+      await user.click(await screen.findByRole("button", { name: /sign in/i }));
+      expect(await screen.findByText("Authentication required.")).toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync(3300);
+
+      await waitFor(() => {
+        expect(screen.queryByText("Authentication required.")).not.toBeInTheDocument();
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("loads the stream editor with API data", async () => {
@@ -86,7 +118,7 @@ describe("App", () => {
       .mockImplementationOnce(() =>
         jsonResponse({
           appName: "UbiRSTP2ONVIF",
-          version: "0.1.1",
+          version: "0.2.0",
           githubUrl: "https://github.com/itsh-neumeier/UbiRSTP2ONVIF",
           baseUrl: "http://localhost:8080",
           locale: "en",
@@ -131,7 +163,7 @@ describe("App", () => {
                 manufacturer: "UbiRSTP2ONVIF",
                 model: "Virtual RTSP Bridge",
                 hardwareId: "virtual-bridge",
-                firmwareVersion: "0.1.1"
+                firmwareVersion: "0.2.0"
               },
               createdAt: "",
               updatedAt: ""

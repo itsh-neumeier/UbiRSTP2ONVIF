@@ -9,6 +9,8 @@ import { decryptSecret, encryptSecret } from "../lib/crypto.js";
 export type DbHandle = Database.Database;
 
 export type UserRole = "admin" | "viewer";
+export type WorkerMode = "shared" | "dedicated";
+export type Go2RtcMode = "direct" | "ffmpeg";
 
 export type UserRecord = {
   id: string;
@@ -50,6 +52,14 @@ export type StreamRecord = {
   onvif_model: string | null;
   onvif_hardware_id: string | null;
   onvif_firmware_version: string | null;
+  worker_mode: WorkerMode;
+  advertised_host: string | null;
+  worker_http_port: number | null;
+  worker_network_name: string | null;
+  go2rtc_mode: Go2RtcMode;
+  go2rtc_video: string | null;
+  go2rtc_audio: string | null;
+  go2rtc_raw: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -233,6 +243,14 @@ export type StreamInput = {
   onvifModel?: string | null;
   onvifHardwareId?: string | null;
   onvifFirmwareVersion?: string | null;
+  workerMode?: WorkerMode;
+  advertisedHost?: string | null;
+  workerHttpPort?: number | null;
+  workerNetworkName?: string | null;
+  go2rtcMode?: Go2RtcMode;
+  go2rtcVideo?: string | null;
+  go2rtcAudio?: string | null;
+  go2rtcRaw?: string | null;
 };
 
 export function listStreams(db: DbHandle): StreamRecord[] {
@@ -251,12 +269,16 @@ export function createStream(db: DbHandle, config: AppConfig, input: StreamInput
       INSERT INTO streams (
         id, name, description, rtsp_url, username_enc, password_enc, active,
         last_status, last_error, last_check_at, last_latency_ms, recorder_notes,
-        onvif_name, onvif_manufacturer, onvif_model, onvif_hardware_id, onvif_firmware_version, created_at, updated_at
+        onvif_name, onvif_manufacturer, onvif_model, onvif_hardware_id, onvif_firmware_version,
+        worker_mode, advertised_host, worker_http_port, worker_network_name,
+        go2rtc_mode, go2rtc_video, go2rtc_audio, go2rtc_raw, created_at, updated_at
       )
       VALUES (
         @id, @name, @description, @rtsp_url, @username_enc, @password_enc, @active,
         'unknown', NULL, NULL, NULL, @recorder_notes, @onvif_name, @onvif_manufacturer,
-        @onvif_model, @onvif_hardware_id, @onvif_firmware_version, @created_at, @updated_at
+        @onvif_model, @onvif_hardware_id, @onvif_firmware_version,
+        @worker_mode, @advertised_host, @worker_http_port, @worker_network_name,
+        @go2rtc_mode, @go2rtc_video, @go2rtc_audio, @go2rtc_raw, @created_at, @updated_at
       )
     `
   ).run({
@@ -273,6 +295,14 @@ export function createStream(db: DbHandle, config: AppConfig, input: StreamInput
     onvif_model: input.onvifModel ?? null,
     onvif_hardware_id: input.onvifHardwareId ?? null,
     onvif_firmware_version: input.onvifFirmwareVersion ?? null,
+    worker_mode: input.workerMode ?? "shared",
+    advertised_host: input.advertisedHost ?? null,
+    worker_http_port: input.workerHttpPort ?? null,
+    worker_network_name: input.workerNetworkName ?? null,
+    go2rtc_mode: input.go2rtcMode ?? "direct",
+    go2rtc_video: input.go2rtcVideo ?? null,
+    go2rtc_audio: input.go2rtcAudio ?? null,
+    go2rtc_raw: input.go2rtcRaw ?? null,
     created_at: now,
     updated_at: now
   });
@@ -301,6 +331,14 @@ export function updateStream(db: DbHandle, config: AppConfig, id: string, input:
         onvif_model = ?,
         onvif_hardware_id = ?,
         onvif_firmware_version = ?,
+        worker_mode = ?,
+        advertised_host = ?,
+        worker_http_port = ?,
+        worker_network_name = ?,
+        go2rtc_mode = ?,
+        go2rtc_video = ?,
+        go2rtc_audio = ?,
+        go2rtc_raw = ?,
         updated_at = ?
       WHERE id = ?
     `
@@ -325,6 +363,14 @@ export function updateStream(db: DbHandle, config: AppConfig, id: string, input:
     input.onvifModel ?? current.onvif_model,
     input.onvifHardwareId ?? current.onvif_hardware_id,
     input.onvifFirmwareVersion ?? current.onvif_firmware_version,
+    input.workerMode ?? current.worker_mode,
+    input.advertisedHost === undefined ? current.advertised_host : input.advertisedHost,
+    input.workerHttpPort === undefined ? current.worker_http_port : input.workerHttpPort,
+    input.workerNetworkName === undefined ? current.worker_network_name : input.workerNetworkName,
+    input.go2rtcMode ?? current.go2rtc_mode,
+    input.go2rtcVideo === undefined ? current.go2rtc_video : input.go2rtcVideo,
+    input.go2rtcAudio === undefined ? current.go2rtc_audio : input.go2rtcAudio,
+    input.go2rtcRaw === undefined ? current.go2rtc_raw : input.go2rtcRaw,
     now,
     id
   );

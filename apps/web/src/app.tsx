@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useMemo, useState, type FormEvent } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import {
   createStream,
@@ -20,6 +20,8 @@ import {
 import { translate } from "./i18n";
 import type { ApiStream, ApiUser, Language, ThemeMode } from "./types";
 
+type AppPage = "dashboard" | "streams" | "endpoints" | "users" | "settings";
+
 type StreamFormState = {
   name: string;
   description: string;
@@ -34,6 +36,35 @@ type StreamFormState = {
   username: string;
   password: string;
 };
+
+type ToastKind = "success" | "error";
+
+type Toast = {
+  id: number;
+  kind: ToastKind;
+  message: string;
+};
+
+const NAVIGATION: Array<{ id: AppPage; labelKey: string }> = [
+  { id: "dashboard", labelKey: "dashboard" },
+  { id: "streams", labelKey: "streams" },
+  { id: "endpoints", labelKey: "endpoints" },
+  { id: "users", labelKey: "users" },
+  { id: "settings", labelKey: "settings" }
+];
+
+const PAGE_HINTS: Record<AppPage, string> = {
+  dashboard: "overview",
+  streams: "streamList",
+  endpoints: "virtualCameras",
+  users: "adminAccess",
+  settings: "generalSettings"
+};
+
+const LANGUAGE_OPTIONS: Array<{ value: Language; flag: string }> = [
+  { value: "en", flag: "\uD83C\uDDEC\uD83C\uDDE7" },
+  { value: "de", flag: "\uD83C\uDDE9\uD83C\uDDEA" }
+];
 
 function getInitialTheme(): ThemeMode {
   return localStorage.getItem("ubirstp2onvif-theme") === "dark" ? "dark" : "light";
@@ -65,9 +96,7 @@ function ThemeIcon({ theme }: { theme: ThemeMode }) {
 }
 
 function formatTimestamp(value: string | null, language: Language) {
-  if (!value) {
-    return "n/a";
-  }
+  if (!value) return "n/a";
   return new Intl.DateTimeFormat(language === "de" ? "de-DE" : "en-US", {
     dateStyle: "medium",
     timeStyle: "short"
@@ -86,11 +115,21 @@ function statusLabel(language: Language, status: ApiStream["status"]) {
   }[status];
 }
 
+function roleLabel(language: Language, role: ApiUser["role"]) {
+  return role === "admin" ? translate(language, "roleAdmin") : translate(language, "roleViewer");
+}
+
+function pageFromHash(hash: string): AppPage | null {
+  const value = hash.replace(/^#/, "");
+  return NAVIGATION.some((entry) => entry.id === value) ? (value as AppPage) : null;
+}
+
 export function App() {
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
   const [language, setLanguage] = useState<Language>(getInitialLanguage);
-  const [version, setVersion] = useState("0.1.1");
+  const [version, setVersion] = useState("0.2.0");
   const [githubUrl, setGithubUrl] = useState("https://github.com/itsh-neumeier/UbiRSTP2ONVIF");
+  const [baseUrl, setBaseUrl] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -98,6 +137,7 @@ export function App() {
   const [currentUser, setCurrentUser] = useState<ApiUser | null>(null);
   const [streams, setStreams] = useState<ApiStream[]>([]);
   const [users, setUsers] = useState<ApiUser[]>([]);
+  const [activePage, setActivePage] = useState<AppPage>("dashboard");
   const [selectedStreamId, setSelectedStreamId] = useState<string | null>(null);
   const [loginForm, setLoginForm] = useState({ username: "admin", password: "" });
   const [streamForm, setStreamForm] = useState<StreamFormState>(emptyStreamForm);
@@ -109,7 +149,31 @@ export function App() {
     locale: "en" as Language
   });
   const [passwordReset, setPasswordReset] = useState("");
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const nextToastId = useRef(1);
+  const toastTimeouts = useRef(new Map<number, number>());
 
+  function pushToast(kind: ToastKind, message: string) {
+    const id = nextToastId.current++;
+    const timeoutId = window.setTimeout(() => {
+      dismissToast(id);
+    }, 3200);
+    toastTimeouts.current.set(id, timeoutId);
+    setToasts((current) => [...current, { id, kind, message }]);
+  }
+
+  function dismissToast(id: number) {
+    const timeoutId = toastTimeouts.current.get(id);
+    if (timeoutId) {
+      window.clearTimeout(timeoutId);
+      toastTimeouts.current.delete(id);
+    }
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }
+
+  function setAppLanguage(nextLanguage: Language) {
+    setLanguage(nextLanguage);
+  }
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("ubirstp2onvif-theme", theme);
@@ -120,17 +184,42 @@ export function App() {
     localStorage.setItem("ubirstp2onvif-lang", language);
   }, [language]);
 
-  const selectedStream = useMemo(
-    () => streams.find((stream) => stream.id === selectedStreamId) ?? null,
-    [selectedStreamId, streams]
-  );
+  useEffect(() => {
+    if (!error) {
+      return;
+    }
+    pushToast("error", error);
+    setError(null);
+  }, [error]);
+
+  useEffect(() => {
+    return () => {
+      for (const timeoutId of toastTimeouts.current.values()) {
+        window.clearTimeout(timeoutId);
+      }
+      toastTimeouts.current.clear();
+    };
+  }, []);
+
+
+  useEffect(() => {
+    const syncPage = () => {
+      const page = pageFromHash(window.location.hash);
+      if (page) setActivePage(page);
+    };
+    syncPage();
+    window.addEventListener("hashchange", syncPage);
+    return () => window.removeEventListener("hashchange", syncPage);
+  }, []);
+
+  const selectedStream = useMemo(() => streams.find((stream) => stream.id === selectedStreamId) ?? null, [selectedStreamId, streams]);
+  const recentStreams = useMemo(() => streams.slice(0, 4), [streams]);
 
   useEffect(() => {
     if (!selectedStream) {
       setStreamForm(emptyStreamForm());
       return;
     }
-
     setStreamForm({
       name: selectedStream.name,
       description: selectedStream.description,
@@ -148,11 +237,7 @@ export function App() {
   }, [selectedStream]);
 
   async function refreshData(admin = currentUser?.role === "admin") {
-    const [streamData, userData] = await Promise.all([
-      getStreams(),
-      admin ? getUsers() : Promise.resolve({ users: [] })
-    ]);
-
+    const [streamData, userData] = await Promise.all([getStreams(), admin ? getUsers() : Promise.resolve({ users: [] })]);
     startTransition(() => {
       setStreams(streamData.streams);
       setUsers(userData.users);
@@ -168,43 +253,30 @@ export function App() {
 
   useEffect(() => {
     let active = true;
-
     const boot = async () => {
       try {
         const info = await getSystemInfo();
-        if (!active) {
-          return;
-        }
+        if (!active) return;
         setVersion(info.version);
         setGithubUrl(info.githubUrl);
+        setBaseUrl(info.baseUrl);
         setLanguage(info.locale);
-
         if (!info.authenticated) {
           setAuthenticated(false);
           return;
         }
-
         const session = await getSession();
-        if (!active) {
-          return;
-        }
-
+        if (!active) return;
         setCurrentUser(session.user);
         setAuthenticated(true);
         await refreshData(session.user.role === "admin");
       } catch (bootError) {
-        if (active) {
-          setError(bootError instanceof Error ? bootError.message : translate(language, "loadFailed"));
-        }
+        if (active) setError(bootError instanceof Error ? bootError.message : translate(language, "loadFailed"));
       } finally {
-        if (active) {
-          setLoading(false);
-        }
+        if (active) setLoading(false);
       }
     };
-
     void boot();
-
     return () => {
       active = false;
     };
@@ -216,16 +288,10 @@ export function App() {
     const averageLatency =
       healthyStreams.length === 0
         ? 0
-        : Math.round(
-            healthyStreams.reduce((sum, stream) => sum + (stream.lastLatencyMs ?? 0), 0) / healthyStreams.length
-          );
-
+        : Math.round(healthyStreams.reduce((sum, stream) => sum + (stream.lastLatencyMs ?? 0), 0) / healthyStreams.length);
     return [
       { label: translate(language, "activeStreams"), value: String(activeStreams.length) },
-      {
-        label: translate(language, "health"),
-        value: streams.length === 0 ? "0%" : `${Math.round((healthyStreams.length / streams.length) * 100)}%`
-      },
+      { label: translate(language, "health"), value: streams.length === 0 ? "0%" : `${Math.round((healthyStreams.length / streams.length) * 100)}%` },
       { label: translate(language, "latency"), value: `${averageLatency} ms` },
       { label: translate(language, "uptime"), value: currentUser?.role ?? "viewer" }
     ];
@@ -239,7 +305,10 @@ export function App() {
       const auth = await login(loginForm.username, loginForm.password);
       setCurrentUser(auth.user);
       setAuthenticated(true);
+      setActivePage("dashboard");
+      window.location.hash = "dashboard";
       await refreshData(auth.user.role === "admin");
+      pushToast("success", translate(language, "toastLoggedIn"));
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : "Login failed.");
     } finally {
@@ -256,11 +325,13 @@ export function App() {
       setStreams([]);
       setUsers([]);
       setSelectedStreamId(null);
+      setActivePage("dashboard");
+      window.location.hash = "";
+      pushToast("success", translate(language, "toastLoggedOut"));
     } finally {
       setBusy(false);
     }
   }
-
   async function onSaveStream() {
     setBusy(true);
     setError(null);
@@ -277,20 +348,18 @@ export function App() {
         onvifHardwareId: streamForm.onvifHardwareId,
         onvifFirmwareVersion: streamForm.onvifFirmwareVersion
       };
-      if (streamForm.username) {
-        payload.username = streamForm.username;
-      }
-      if (streamForm.password) {
-        payload.password = streamForm.password;
-      }
-
+      if (streamForm.username) payload.username = streamForm.username;
+      if (streamForm.password) payload.password = streamForm.password;
       if (selectedStream) {
         await updateStream(selectedStream.id, payload);
       } else {
         const created = await createStream(payload);
         setSelectedStreamId(created.stream.id);
       }
+      setActivePage("streams");
+      window.location.hash = "streams";
       await refreshData();
+      pushToast("success", translate(language, selectedStream ? "toastUpdated" : "toastCreated"));
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Could not save stream.");
     } finally {
@@ -299,13 +368,12 @@ export function App() {
   }
 
   async function onTestStream() {
-    if (!selectedStream) {
-      return;
-    }
+    if (!selectedStream) return;
     setBusy(true);
     try {
       await testStream(selectedStream.id);
       await refreshData();
+      pushToast("success", translate(language, "toastTested"));
     } catch (testError) {
       setError(testError instanceof Error ? testError.message : "Could not test stream.");
     } finally {
@@ -314,16 +382,11 @@ export function App() {
   }
 
   async function onToggleStream() {
-    if (!selectedStream) {
-      return;
-    }
+    if (!selectedStream) return;
     setBusy(true);
     try {
-      if (selectedStream.active) {
-        await stopStream(selectedStream.id);
-      } else {
-        await startStream(selectedStream.id);
-      }
+      if (selectedStream.active) await stopStream(selectedStream.id);
+      else await startStream(selectedStream.id);
       await refreshData();
     } finally {
       setBusy(false);
@@ -331,14 +394,13 @@ export function App() {
   }
 
   async function onDeleteStream() {
-    if (!selectedStream || !window.confirm(`Delete stream "${selectedStream.name}"?`)) {
-      return;
-    }
+    if (!selectedStream || !window.confirm(`Delete stream "${selectedStream.name}"?`)) return;
     setBusy(true);
     try {
       await deleteStream(selectedStream.id);
       setSelectedStreamId(null);
       await refreshData();
+      pushToast("success", translate(language, "toastDeleted"));
     } finally {
       setBusy(false);
     }
@@ -351,6 +413,7 @@ export function App() {
       await createUser(newUserForm);
       setNewUserForm({ username: "", displayName: "", password: "", role: "viewer", locale: language });
       await refreshData(true);
+      pushToast("success", translate(language, "toastCreated"));
     } catch (userError) {
       setError(userError instanceof Error ? userError.message : "Could not create user.");
     } finally {
@@ -363,6 +426,7 @@ export function App() {
     try {
       await updateUser(user.id, { disabled: !user.disabled });
       await refreshData(true);
+      pushToast("success", translate(language, "toastUpdated"));
     } finally {
       setBusy(false);
     }
@@ -377,6 +441,7 @@ export function App() {
     try {
       await resetPassword(userId, passwordReset);
       setPasswordReset("");
+      pushToast("success", translate(language, "toastPasswordReset"));
     } catch (resetError) {
       setError(resetError instanceof Error ? resetError.message : "Could not reset password.");
     } finally {
@@ -384,376 +449,236 @@ export function App() {
     }
   }
 
+  function openStreamEditor(streamId: string) {
+    setSelectedStreamId(streamId);
+    setActivePage("streams");
+    window.location.hash = "streams";
+  }
+
+  function startNewStream() {
+    setSelectedStreamId(null);
+    setStreamForm(emptyStreamForm());
+    setActivePage("streams");
+    window.location.hash = "streams";
+  }
+
+  const toastStack = (
+    <div className="toast-stack" aria-live="polite" aria-atomic="true">
+      {toasts.map((toast) => (
+        <div key={toast.id} className={`toast ${toast.kind}`} role={toast.kind === "error" ? "alert" : "status"}>
+          <strong>{translate(language, toast.kind === "error" ? "toastErrorTitle" : "toastSuccessTitle")}</strong>
+          <p>{toast.message}</p>
+        </div>
+      ))}
+    </div>
+  );
+
+  const languageMenu = (
+    <div className="language-menu">
+      <select
+        className="flag-trigger"
+        aria-label={translate(language, "language")}
+        title={translate(language, "language")}
+        value={language}
+        onChange={(event) => setAppLanguage(event.target.value as Language)}
+      >
+        {LANGUAGE_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.flag}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+
   if (loading) {
-    return <div className="shell auth-shell">Loading...</div>;
+    return (
+      <>
+        {toastStack}
+        <div className="shell auth-shell">Loading...</div>
+      </>
+    );
   }
 
   if (!authenticated) {
     return (
-      <div className="shell auth-shell">
-        <main className="auth-card">
-          <div className="brand-mark" aria-hidden="true">
-            <span />
-          </div>
-          <p className="eyebrow">{translate(language, "appName")}</p>
-          <h1>{translate(language, "loginTitle")}</h1>
-          <p className="muted">{translate(language, "loginSubtitle")}</p>
-
-          <form className="auth-form" onSubmit={onLogin}>
-            <label>
-              <span>{translate(language, "username")}</span>
-              <input
-                name="username"
-                autoComplete="username"
-                value={loginForm.username}
-                onChange={(event) => setLoginForm((current) => ({ ...current, username: event.target.value }))}
-              />
-            </label>
-            <label>
-              <span>{translate(language, "password")}</span>
-              <input
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                value={loginForm.password}
-                onChange={(event) => setLoginForm((current) => ({ ...current, password: event.target.value }))}
-              />
-            </label>
-            {error ? <p className="banner error-banner">{error}</p> : null}
-            <button className="primary-button" type="submit" disabled={busy}>
-              {translate(language, "signIn")}
-            </button>
-          </form>
-
-          <div className="inline-actions">
-            <button className="text-button" type="button" onClick={() => setLanguage(language === "en" ? "de" : "en")}>
-              {language === "en" ? "DE" : "EN"}
-            </button>
-            <button className="text-button" type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
-              <ThemeIcon theme={theme} />
-            </button>
-          </div>
-        </main>
-      </div>
+      <>
+        {toastStack}
+        <div className="shell auth-shell">
+          <main className="auth-card">
+            <div className="brand-mark" aria-hidden="true"><span /></div>
+            <p className="eyebrow">{translate(language, "appName")}</p>
+            <h1>{translate(language, "loginTitle")}</h1>
+            <p className="muted">{translate(language, "loginSubtitle")}</p>
+            <form className="auth-form" onSubmit={onLogin}>
+              <label>
+                <span>{translate(language, "username")}</span>
+                <input name="username" autoComplete="username" value={loginForm.username} onChange={(event) => setLoginForm((current) => ({ ...current, username: event.target.value }))} />
+              </label>
+              <label>
+                <span>{translate(language, "password")}</span>
+                <input name="password" type="password" autoComplete="current-password" value={loginForm.password} onChange={(event) => setLoginForm((current) => ({ ...current, password: event.target.value }))} />
+              </label>
+              <button className="primary-button" type="submit" disabled={busy}>{translate(language, "signIn")}</button>
+            </form>
+            <div className="inline-actions">
+              {languageMenu}
+              <button className="text-button" type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}><ThemeIcon theme={theme} /></button>
+            </div>
+          </main>
+        </div>
+      </>
     );
   }
-
-  return (
-    <div className="shell app-shell">
-      <aside className="sidebar">
-        <div className="sidebar-brand">
-          <div className="brand-mark compact" aria-hidden="true">
-            <span />
-          </div>
-          <div>
-            <strong>{translate(language, "appName")}</strong>
-            <p>{translate(language, "tagline")}</p>
-          </div>
-        </div>
-
-        <nav className="nav">
-          <a href="#dashboard">{translate(language, "dashboard")}</a>
-          <a href="#streams">{translate(language, "streams")}</a>
-          <a href="#users">{translate(language, "users")}</a>
-          <a href="#settings">{translate(language, "settings")}</a>
-        </nav>
-
-        <div className="sidebar-panel">
-          <p className="eyebrow">{translate(language, "overview")}</p>
-          <strong>{currentUser?.displayName}</strong>
-          <p className="muted">{currentUser?.role}</p>
-        </div>
-      </aside>
-
-      <main className="workspace">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">{translate(language, "appName")}</p>
-            <h1>{translate(language, "dashboard")}</h1>
-          </div>
-          <div className="topbar-actions">
-            <button className="pill" type="button" onClick={() => setLanguage(language === "en" ? "de" : "en")}>
-              {language === "en" ? "DE" : "EN"}
-            </button>
-            <button className="pill" type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
-              <ThemeIcon theme={theme} />
-            </button>
-            <button className="pill" type="button" onClick={() => void onLogout()}>
-              {translate(language, "signOut")}
-            </button>
-          </div>
-        </header>
-
-        {error ? <p className="banner error-banner">{error}</p> : null}
-
-        <section className="stats-grid" id="dashboard" aria-label="Dashboard statistics">
+  const content =
+    activePage === "dashboard" ? (
+      <>
+        <section className="stats-grid" aria-label="Dashboard statistics">
           {stats.map((stat) => (
-            <article key={stat.label} className="stat-card">
-              <span>{stat.label}</span>
-              <strong>{stat.value}</strong>
-            </article>
+            <article key={stat.label} className="stat-card"><span>{stat.label}</span><strong>{stat.value}</strong></article>
           ))}
         </section>
-
         <section className="content-grid">
-          <article className="panel panel-large" id="streams">
-            <div className="panel-header">
-              <div>
-                <p className="eyebrow">{translate(language, "streamList")}</p>
-                <h2>{translate(language, "streams")}</h2>
-              </div>
-              <button className="ghost-button" type="button" onClick={() => setSelectedStreamId(null)}>
-                {translate(language, "createStream")}
-              </button>
-            </div>
-
+          <article className="panel panel-large">
+            <div className="panel-header"><div><p className="eyebrow">{translate(language, "recentStreams")}</p><h2>{translate(language, "streams")}</h2></div><button className="ghost-button" type="button" onClick={startNewStream}>{translate(language, "createStream")}</button></div>
             <div className="stream-list">
-              {streams.length === 0 ? <p className="muted">{translate(language, "noStreams")}</p> : null}
-              {streams.map((stream) => (
-                <button
-                  key={stream.id}
-                  className={`stream-row ${stream.id === selectedStreamId ? "selected" : ""}`}
-                  type="button"
-                  onClick={() => setSelectedStreamId(stream.id)}
-                >
-                  <div>
-                    <strong>{stream.name}</strong>
-                    <p>{stream.description}</p>
-                  </div>
-                  <div className="stream-meta">
-                    <span className={statusClass(stream.status)}>{statusLabel(language, stream.status)}</span>
-                    <small>{stream.active ? translate(language, "enabled") : translate(language, "disabled")}</small>
-                  </div>
+              {recentStreams.length === 0 ? <p className="muted">{translate(language, "noStreams")}</p> : null}
+              {recentStreams.map((stream) => (
+                <button key={stream.id} className={`stream-row ${stream.id === selectedStreamId ? "selected" : ""}`} type="button" onClick={() => openStreamEditor(stream.id)}>
+                  <div><strong>{stream.name}</strong><p>{stream.description}</p></div>
+                  <div className="stream-meta"><span className={statusClass(stream.status)}>{statusLabel(language, stream.status)}</span><small>{stream.active ? translate(language, "enabled") : translate(language, "disabled")}</small></div>
                 </button>
               ))}
             </div>
           </article>
-
-          <article className="panel panel-large">
-            <div className="panel-header">
-              <div>
-                <p className="eyebrow">{translate(language, "streamEditor")}</p>
-                <h2>{selectedStream?.name ?? translate(language, "createStream")}</h2>
-              </div>
-              <span className={selectedStream ? statusClass(selectedStream.status) : "status unknown"}>
-                {selectedStream ? formatTimestamp(selectedStream.lastCheckAt, language) : translate(language, "noSelection")}
-              </span>
-            </div>
-
-            <form
-              className="editor-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void onSaveStream();
-              }}
-            >
-              <label>
-                <span>Name</span>
-                <input value={streamForm.name} onChange={(event) => setStreamForm((current) => ({ ...current, name: event.target.value }))} />
-              </label>
-              <label>
-                <span>Description</span>
-                <textarea
-                  value={streamForm.description}
-                  rows={3}
-                  onChange={(event) => setStreamForm((current) => ({ ...current, description: event.target.value }))}
-                />
-              </label>
-              <label>
-                <span>RTSP URL</span>
-                <input value={streamForm.rtspUrl} onChange={(event) => setStreamForm((current) => ({ ...current, rtspUrl: event.target.value }))} />
-              </label>
-              <label>
-                <span>{translate(language, "recorderNotes")}</span>
-                <textarea
-                  value={streamForm.recorderNotes}
-                  rows={2}
-                  onChange={(event) => setStreamForm((current) => ({ ...current, recorderNotes: event.target.value }))}
-                />
-              </label>
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={streamForm.active}
-                  onChange={(event) => setStreamForm((current) => ({ ...current, active: event.target.checked }))}
-                />
-                <span>{translate(language, "enabled")}</span>
-              </label>
-
-              <div className="split-grid">
-                <label>
-                  <span>{translate(language, "username")}</span>
-                  <input value={streamForm.username} onChange={(event) => setStreamForm((current) => ({ ...current, username: event.target.value }))} />
-                </label>
-                <label>
-                  <span>{translate(language, "password")}</span>
-                  <input
-                    type="password"
-                    value={streamForm.password}
-                    onChange={(event) => setStreamForm((current) => ({ ...current, password: event.target.value }))}
-                  />
-                </label>
-              </div>
-
-              <div className="split-grid">
-                <label>
-                  <span>ONVIF Name</span>
-                  <input value={streamForm.onvifName} onChange={(event) => setStreamForm((current) => ({ ...current, onvifName: event.target.value }))} />
-                </label>
-                <label>
-                  <span>ONVIF Model</span>
-                  <input value={streamForm.onvifModel} onChange={(event) => setStreamForm((current) => ({ ...current, onvifModel: event.target.value }))} />
-                </label>
-              </div>
-
-              <div className="editor-footer">
-                <div>
-                  <p className="eyebrow">{translate(language, "onvifEndpoint")}</p>
-                  <strong>{selectedStream?.onvif.deviceServiceUrl ?? "/onvif/<stream>/device_service"}</strong>
-                </div>
-                <div className="button-row">
-                  <button className="ghost-button" type="button" disabled={!selectedStream || busy} onClick={() => void onTestStream()}>
-                    {translate(language, "testConnection")}
-                  </button>
-                  <button className="ghost-button" type="button" disabled={!selectedStream || busy} onClick={() => void onToggleStream()}>
-                    {selectedStream?.active ? translate(language, "disabled") : translate(language, "enabled")}
-                  </button>
-                  <button className="ghost-button" type="button" disabled={!selectedStream || busy} onClick={() => void onDeleteStream()}>
-                    {translate(language, "deleteStream")}
-                  </button>
-                  <button className="primary-button" type="submit" disabled={busy}>
-                    {translate(language, "saveChanges")}
-                  </button>
-                </div>
-              </div>
-            </form>
-          </article>
+          <article className="panel"><div className="panel-header"><div><p className="eyebrow">{translate(language, "system")}</p><h2>{translate(language, "deploymentHints")}</h2></div></div><div className="settings-card"><p>{translate(language, "footer")}</p><p>{translate(language, "baseUrl")}: <strong>{baseUrl || "n/a"}</strong></p><p>{translate(language, "footerGitHub")}: <a href={githubUrl}>{githubUrl}</a></p><p>{translate(language, "cookieNotice")}</p></div></article>
         </section>
+      </>
+    ) : activePage === "streams" ? (
+      <section className="content-grid">
+        <article className="panel panel-large">
+          <div className="panel-header"><div><p className="eyebrow">{translate(language, "streamList")}</p><h2>{translate(language, "streams")}</h2></div><button className="ghost-button" type="button" onClick={startNewStream}>{translate(language, "createStream")}</button></div>
+          <div className="stream-list">
+            {streams.length === 0 ? <p className="muted">{translate(language, "noStreams")}</p> : null}
+            {streams.map((stream) => (
+              <button key={stream.id} className={`stream-row ${stream.id === selectedStreamId ? "selected" : ""}`} type="button" onClick={() => setSelectedStreamId(stream.id)}>
+                <div><strong>{stream.name}</strong><p>{stream.description}</p></div>
+                <div className="stream-meta"><span className={statusClass(stream.status)}>{statusLabel(language, stream.status)}</span><small>{stream.active ? translate(language, "enabled") : translate(language, "disabled")}</small></div>
+              </button>
+            ))}
+          </div>
+        </article>
+        <article className="panel panel-large">
+          <div className="panel-header"><div><p className="eyebrow">{translate(language, "streamEditor")}</p><h2>{selectedStream?.name ?? translate(language, "createStream")}</h2></div><span className={selectedStream ? statusClass(selectedStream.status) : "status unknown"}>{selectedStream ? formatTimestamp(selectedStream.lastCheckAt, language) : translate(language, "noSelection")}</span></div>
+          <form className="editor-form" onSubmit={(event) => { event.preventDefault(); void onSaveStream(); }}>
+            <label><span>Name</span><input value={streamForm.name} onChange={(event) => setStreamForm((current) => ({ ...current, name: event.target.value }))} /></label>
+            <label><span>Description</span><textarea value={streamForm.description} rows={3} onChange={(event) => setStreamForm((current) => ({ ...current, description: event.target.value }))} /></label>
+            <label><span>RTSP URL</span><input value={streamForm.rtspUrl} onChange={(event) => setStreamForm((current) => ({ ...current, rtspUrl: event.target.value }))} /></label>
+            <label><span>{translate(language, "recorderNotes")}</span><textarea value={streamForm.recorderNotes} rows={2} onChange={(event) => setStreamForm((current) => ({ ...current, recorderNotes: event.target.value }))} /></label>
+            <label className="checkbox"><input type="checkbox" checked={streamForm.active} onChange={(event) => setStreamForm((current) => ({ ...current, active: event.target.checked }))} /><span>{translate(language, "enabled")}</span></label>
+            <div className="split-grid"><label><span>{translate(language, "username")}</span><input value={streamForm.username} onChange={(event) => setStreamForm((current) => ({ ...current, username: event.target.value }))} /></label><label><span>{translate(language, "password")}</span><input type="password" value={streamForm.password} onChange={(event) => setStreamForm((current) => ({ ...current, password: event.target.value }))} /></label></div>
+            <div className="split-grid"><label><span>ONVIF Name</span><input value={streamForm.onvifName} onChange={(event) => setStreamForm((current) => ({ ...current, onvifName: event.target.value }))} /></label><label><span>ONVIF Model</span><input value={streamForm.onvifModel} onChange={(event) => setStreamForm((current) => ({ ...current, onvifModel: event.target.value }))} /></label></div>
+            <div className="editor-footer"><div><p className="eyebrow">{translate(language, "onvifEndpoint")}</p><strong>{selectedStream?.onvif.deviceServiceUrl ?? "/onvif/<stream>/device_service"}</strong></div><div className="button-row"><button className="ghost-button" type="button" disabled={!selectedStream || busy} onClick={() => void onTestStream()}>{translate(language, "testConnection")}</button><button className="ghost-button" type="button" disabled={!selectedStream || busy} onClick={() => void onToggleStream()}>{selectedStream?.active ? translate(language, "disabled") : translate(language, "enabled")}</button><button className="ghost-button" type="button" disabled={!selectedStream || busy} onClick={() => void onDeleteStream()}>{translate(language, "deleteStream")}</button><button className="primary-button" type="submit" disabled={busy}>{translate(language, "saveChanges")}</button></div></div>
+          </form>
+        </article>
+      </section>
+    ) : activePage === "endpoints" ? (
+      <section className="content-grid">
+        <article className="panel panel-large">
+          <div className="panel-header"><div><p className="eyebrow">{translate(language, "endpoints")}</p><h2>{translate(language, "virtualCameras")}</h2></div></div>
+          <div className="stream-list">
+            {streams.length === 0 ? <p className="muted">{translate(language, "noStreams")}</p> : null}
+            {streams.map((stream) => (
+              <button key={stream.id} className="stream-row" type="button" onClick={() => openStreamEditor(stream.id)}>
+                <div><strong>{stream.name}</strong><p>{stream.onvif.name || stream.description}</p></div>
+                <div className="stream-meta"><span className={statusClass(stream.status)}>{statusLabel(language, stream.status)}</span><small>{stream.onvif.profileToken}</small></div>
+              </button>
+            ))}
+          </div>
+        </article>
+        <article className="panel"><div className="panel-header"><div><p className="eyebrow">{translate(language, "deploymentHints")}</p><h2>{translate(language, "onvifEndpoint")}</h2></div></div>{selectedStream ? <div className="settings-card"><p>{translate(language, "deviceService")}: <strong>{selectedStream.onvif.deviceServiceUrl}</strong></p><p>{translate(language, "mediaService")}: <strong>{selectedStream.onvif.mediaServiceUrl}</strong></p><p>{translate(language, "recorderNotes")}: {selectedStream.recorderNotes || "n/a"}</p><button className="ghost-button" type="button" onClick={() => openStreamEditor(selectedStream.id)}>{translate(language, "openEditor")}</button></div> : <div className="settings-card"><p className="muted">{translate(language, "noSelection")}</p><p>{translate(language, "cookieNotice")}</p></div>}</article>
+      </section>
+    ) : activePage === "users" ? (
+      <section className="content-grid">
+        <article className="panel panel-large">
+          <div className="panel-header"><div><p className="eyebrow">{translate(language, "users")}</p><h2>{translate(language, "adminAccess")}</h2></div></div>
+          {currentUser?.role !== "admin" ? <div className="settings-card"><p>{translate(language, "readOnlyAccount")}</p></div> : <><div className="user-list">{users.length === 0 ? <p className="muted">{translate(language, "noUsers")}</p> : null}{users.map((user) => (<div key={user.id} className="user-row"><div><strong>{user.displayName}</strong><p>{user.username}</p></div><div className="user-meta"><span>{roleLabel(language, user.role)}</span><small>{user.disabled ? translate(language, "disabled") : translate(language, "enabled")}</small><button className="text-button" type="button" onClick={() => void onToggleUser(user)}>{user.disabled ? translate(language, "enabled") : translate(language, "disabled")}</button><button className="text-button" type="button" onClick={() => void onResetPassword(user.id)}>{translate(language, "resetPassword")}</button></div></div>))}</div><div className="stack-card"><div className="split-grid"><label><span>{translate(language, "username")}</span><input value={newUserForm.username} onChange={(event) => setNewUserForm((current) => ({ ...current, username: event.target.value }))} /></label><label><span>{translate(language, "displayName")}</span><input value={newUserForm.displayName} onChange={(event) => setNewUserForm((current) => ({ ...current, displayName: event.target.value }))} /></label></div><div className="split-grid"><label><span>{translate(language, "password")}</span><input type="password" value={newUserForm.password} onChange={(event) => setNewUserForm((current) => ({ ...current, password: event.target.value }))} /></label><label><span>{translate(language, "role")}</span><select value={newUserForm.role} onChange={(event) => setNewUserForm((current) => ({ ...current, role: event.target.value as "admin" | "viewer" }))}><option value="viewer">{translate(language, "roleViewer")}</option><option value="admin">{translate(language, "roleAdmin")}</option></select></label></div><label><span>{translate(language, "language")}</span><select value={newUserForm.locale} onChange={(event) => setNewUserForm((current) => ({ ...current, locale: event.target.value as Language }))}><option value="en">English</option><option value="de">Deutsch</option></select></label><button className="primary-button" type="button" onClick={() => void onCreateUser()} disabled={busy}>{translate(language, "createUser")}</button></div></>}</article>
+        <article className="panel"><div className="panel-header"><div><p className="eyebrow">{translate(language, "resetPassword")}</p><h2>{translate(language, "password")}</h2></div></div><div className="settings-card"><label><span>{translate(language, "password")}</span><input value={passwordReset} onChange={(event) => setPasswordReset(event.target.value)} /></label><p className="muted">{translate(language, "passwordResetHint")}</p></div></article>
+      </section>
+    ) : (
+      <section className="content-grid">
+        <article className="panel panel-large">
+          <div className="panel-header"><div><p className="eyebrow">{translate(language, "generalSettings")}</p><h2>{translate(language, "settings")}</h2></div></div>
+          <div className="settings-card"><p>{translate(language, "appName")} {version}</p><p>{translate(language, "baseUrl")}: <strong>{baseUrl || "n/a"}</strong></p><p>{translate(language, "footerGitHub")}: <a href={githubUrl}>{githubUrl}</a></p><p>{translate(language, "cookieNotice")}</p><p>{translate(language, "dockerPortNote")}</p></div>
+        </article>
+        <article className="panel"><div className="panel-header"><div><p className="eyebrow">{translate(language, "system")}</p><h2>{translate(language, "deploymentHints")}</h2></div></div><div className="settings-card"><p>{translate(language, "footer")}</p><p>{currentUser ? `${currentUser.displayName} / ${roleLabel(language, currentUser.role)}` : "n/a"}</p><div className="button-row"><button className="ghost-button" type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}><ThemeIcon theme={theme} /></button></div></div></article>
+      </section>
+    );
 
-        <section className="content-grid bottom-grid">
-          <article className="panel" id="users">
-            <div className="panel-header">
-              <div>
-                <p className="eyebrow">{translate(language, "users")}</p>
-                <h2>{translate(language, "adminAccess")}</h2>
-              </div>
+  return (
+    <>
+      {toastStack}
+      <div className="shell app-shell">
+        <aside className="sidebar">
+          <div className="sidebar-brand">
+            <div className="brand-mark compact" aria-hidden="true"><span /></div>
+            <div>
+              <strong>{translate(language, "appName")}</strong>
+              <p>{translate(language, "tagline")}</p>
             </div>
+          </div>
+          <nav className="nav" aria-label={translate(language, "navigation")}>
+            {NAVIGATION.map((item) => (
+              <a
+                key={item.id}
+                href={`#${item.id}`}
+                className={`nav-link ${activePage === item.id ? "active" : ""}`}
+                aria-current={activePage === item.id ? "page" : undefined}
+                onClick={(event) => {
+                  event.preventDefault();
+                  setActivePage(item.id);
+                  window.location.hash = item.id;
+                }}
+              >
+                {translate(language, item.labelKey)}
+              </a>
+            ))}
+          </nav>
+          <div className="sidebar-panel">
+            <p className="eyebrow">{translate(language, "overview")}</p>
+            <strong>{currentUser?.displayName}</strong>
+            <p className="muted">{currentUser ? roleLabel(language, currentUser.role) : "n/a"}</p>
+          </div>
+        </aside>
 
-            {currentUser?.role !== "admin" ? (
-              <p className="muted">Read-only account.</p>
-            ) : (
-              <>
-                <div className="user-list">
-                  {users.length === 0 ? <p className="muted">{translate(language, "noUsers")}</p> : null}
-                  {users.map((user) => (
-                    <div key={user.id} className="user-row">
-                      <div>
-                        <strong>{user.displayName}</strong>
-                        <p>{user.username}</p>
-                      </div>
-                      <div className="user-meta">
-                        <span>{user.role}</span>
-                        <small>{user.disabled ? translate(language, "disabled") : translate(language, "enabled")}</small>
-                        <button className="text-button" type="button" onClick={() => void onToggleUser(user)}>
-                          {user.disabled ? translate(language, "enabled") : translate(language, "disabled")}
-                        </button>
-                        <button className="text-button" type="button" onClick={() => void onResetPassword(user.id)}>
-                          {translate(language, "resetPassword")}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="stack-card">
-                  <div className="split-grid">
-                    <label>
-                      <span>{translate(language, "username")}</span>
-                      <input
-                        value={newUserForm.username}
-                        onChange={(event) => setNewUserForm((current) => ({ ...current, username: event.target.value }))}
-                      />
-                    </label>
-                    <label>
-                      <span>{translate(language, "displayName")}</span>
-                      <input
-                        value={newUserForm.displayName}
-                        onChange={(event) => setNewUserForm((current) => ({ ...current, displayName: event.target.value }))}
-                      />
-                    </label>
-                  </div>
-
-                  <div className="split-grid">
-                    <label>
-                      <span>{translate(language, "password")}</span>
-                      <input
-                        type="password"
-                        value={newUserForm.password}
-                        onChange={(event) => setNewUserForm((current) => ({ ...current, password: event.target.value }))}
-                      />
-                    </label>
-                    <label>
-                      <span>{translate(language, "role")}</span>
-                      <select
-                        value={newUserForm.role}
-                        onChange={(event) =>
-                          setNewUserForm((current) => ({ ...current, role: event.target.value as "admin" | "viewer" }))
-                        }
-                      >
-                        <option value="viewer">viewer</option>
-                        <option value="admin">admin</option>
-                      </select>
-                    </label>
-                  </div>
-
-                  <label>
-                    <span>{translate(language, "language")}</span>
-                    <select
-                      value={newUserForm.locale}
-                      onChange={(event) => setNewUserForm((current) => ({ ...current, locale: event.target.value as Language }))}
-                    >
-                      <option value="en">English</option>
-                      <option value="de">Deutsch</option>
-                    </select>
-                  </label>
-
-                  <label>
-                    <span>{translate(language, "resetPassword")}</span>
-                    <input value={passwordReset} onChange={(event) => setPasswordReset(event.target.value)} />
-                  </label>
-
-                  <button className="primary-button" type="button" onClick={() => void onCreateUser()} disabled={busy}>
-                    {translate(language, "createUser")}
-                  </button>
-                </div>
-              </>
-            )}
-          </article>
-
-          <article className="panel" id="settings">
-            <div className="panel-header">
-              <div>
-                <p className="eyebrow">{translate(language, "settings")}</p>
-                <h2>{translate(language, "system")}</h2>
-              </div>
+        <main className="workspace">
+          <header className="topbar">
+            <div>
+              <p className="eyebrow">{translate(language, "appName")}</p>
+              <h1>{translate(language, activePage)}</h1>
+              <p className="muted">{translate(language, PAGE_HINTS[activePage])}</p>
             </div>
-            <div className="settings-card">
-              <p>{translate(language, "footer")}</p>
-              <p>
-                {translate(language, "footerGitHub")}: <a href={githubUrl}>{githubUrl}</a>
-              </p>
-              <p>Version: {version}</p>
+            <div className="topbar-actions">
+              {languageMenu}
+              <button className="pill" type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}><ThemeIcon theme={theme} /></button>
+              <button className="pill" type="button" onClick={() => void onLogout()}>{translate(language, "signOut")}</button>
             </div>
-          </article>
-        </section>
+          </header>
 
-        <footer className="footer">
-          <span>{translate(language, "appName")}</span>
-          <span>Copyright 2026</span>
-          <a href={githubUrl}>GitHub</a>
-          <span>v{version}</span>
-        </footer>
-      </main>
-    </div>
+          {content}
+
+          <footer className="footer">
+            <span>{translate(language, "appName")}</span>
+            <span>Copyright 2026</span>
+            <a href={githubUrl}>{translate(language, "footerGitHub")}</a>
+            <span>v{version}</span>
+          </footer>
+        </main>
+      </div>
+    </>
   );
 }
+
+
+
+
