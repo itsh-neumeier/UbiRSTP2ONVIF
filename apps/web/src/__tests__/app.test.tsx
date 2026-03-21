@@ -146,6 +146,6 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("button", { name: /sign in/i }));
     expect(await screen.findByRole("heading", { name: "Garage" })).toBeInTheDocument();
-    expect(screen.getByDisplayValue("rtsp://camera.local/garage")).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("rtsp://camera.local/garage")).toBeInTheDocument();
   });
 });
