@@ -6,6 +6,7 @@ services:
     ports:
       - "8080:8080"
     environment:
+      APP_ROLE: control-plane
       PORT: 8080
       DATA_DIR: /data
       APP_BASE_URL: http://localhost:8080
@@ -13,6 +14,7 @@ services:
       ADMIN_PASSWORD: change-me-now
       ONVIF_DISCOVERY_ENABLED: "false"
     volumes:
+      # Worker containers read stream definitions from this same data volume.
       - ubirstp2onvif-control-plane-data:/data
     security_opt:
       - no-new-privileges:true
@@ -28,21 +30,30 @@ services:
     image: ghcr.io/itsh-neumeier/ubirstp2onvif:latest
     profiles:
       - workers
-    # This template documents the desired deployment shape for UniFi:
-    # one worker equals one camera IP. Replace the network and IP settings
-    # with a dedicated macvlan/ipvlan network before using it in production.
+    # Replace values per camera and duplicate this service for each worker.
+    # UniFi-facing workers should use one dedicated LAN IP each.
     environment:
+      APP_ROLE: worker
+      WORKER_STREAM_ID: replace-with-stream-id
       PORT: 8080
       DATA_DIR: /data
       APP_BASE_URL: http://192.168.10.201:8080
-      ADMIN_USERNAME: admin
-      ADMIN_PASSWORD: change-me-now
+      ONVIF_USERNAME: onvif
+      ONVIF_PASSWORD: change-me-now
       ONVIF_DISCOVERY_ENABLED: "true"
       ONVIF_DISCOVERY_PORT: 3702
+      GO2RTC_RTSP_PORT: 8554
+      GO2RTC_API_PORT: 1984
+      GO2RTC_STREAM_NAME: camera
     volumes:
-      - ubirstp2onvif-worker-data:/data
+      # Must match control-plane volume while worker config is DB-backed.
+      - ubirstp2onvif-control-plane-data:/data
     security_opt:
       - no-new-privileges:true
+    # Use an external macvlan/ipvlan network in production.
+    networks:
+      worker-lan:
+        ipv4_address: 192.168.10.201
     restart: unless-stopped
 
   go2rtc-sidecar:
@@ -53,7 +64,6 @@ services:
     depends_on:
       - worker-template
     # go2rtc shares the worker network namespace, so it uses the same LAN IP.
-    # Leave the ports configurable so a generator can tune them per worker.
     environment:
       GO2RTC_RTSP_PORT: 8554
       GO2RTC_API_PORT: 1984
@@ -64,5 +74,8 @@ services:
 
 volumes:
   ubirstp2onvif-control-plane-data:
-  ubirstp2onvif-worker-data:
   ubirstp2onvif-go2rtc-data:
+
+networks:
+  worker-lan:
+    external: true

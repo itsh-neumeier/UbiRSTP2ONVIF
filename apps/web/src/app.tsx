@@ -124,6 +124,18 @@ function pageFromHash(hash: string): AppPage | null {
   return NAVIGATION.some((entry) => entry.id === value) ? (value as AppPage) : null;
 }
 
+function getHostLabel(rawUrl: string) {
+  try {
+    return new URL(rawUrl).host;
+  } catch {
+    return rawUrl.replace(/^[a-z]+:\/\//i, "").split("/")[0] || rawUrl;
+  }
+}
+
+function getLastEventLabel(stream: ApiStream, language: Language) {
+  return stream.lastCheckAt ? formatTimestamp(stream.lastCheckAt, language) : "-";
+}
+
 export function App() {
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
   const [language, setLanguage] = useState<Language>(getInitialLanguage);
@@ -491,6 +503,28 @@ export function App() {
     </div>
   );
 
+  const inventoryRows = streams.map((stream) => (
+    <button key={stream.id} className={`inventory-row ${stream.id === selectedStreamId ? "selected" : ""}`} type="button" onClick={() => openStreamEditor(stream.id)}>
+      <span className={`inventory-led ${stream.status}`} aria-hidden="true" />
+      <strong>{stream.name}</strong>
+      <span>{statusLabel(language, stream.status)}</span>
+      <span>{stream.onvif.model}</span>
+      <span>{getHostLabel(stream.rtspUrl)}</span>
+      <span>{getLastEventLabel(stream, language)}</span>
+    </button>
+  ));
+
+  const endpointRows = streams.map((stream) => (
+    <button key={stream.id} className={`inventory-row ${stream.id === selectedStreamId ? "selected" : ""}`} type="button" onClick={() => openStreamEditor(stream.id)}>
+      <span className={`inventory-led ${stream.status}`} aria-hidden="true" />
+      <strong>{stream.onvif.name}</strong>
+      <span>{statusLabel(language, stream.status)}</span>
+      <span>{stream.onvif.model}</span>
+      <span>{getHostLabel(stream.onvif.deviceServiceUrl)}</span>
+      <span>{stream.onvif.profileToken}</span>
+    </button>
+  ));
+
   if (loading) {
     return (
       <>
@@ -535,68 +569,177 @@ export function App() {
       <>
         <section className="stats-grid" aria-label="Dashboard statistics">
           {stats.map((stat) => (
-            <article key={stat.label} className="stat-card"><span>{stat.label}</span><strong>{stat.value}</strong></article>
+            <article key={stat.label} className="stat-card">
+              <span>{stat.label}</span>
+              <strong>{stat.value}</strong>
+            </article>
           ))}
         </section>
-        <section className="content-grid">
-          <article className="panel panel-large">
-            <div className="panel-header"><div><p className="eyebrow">{translate(language, "recentStreams")}</p><h2>{translate(language, "streams")}</h2></div><button className="ghost-button" type="button" onClick={startNewStream}>{translate(language, "createStream")}</button></div>
-            <div className="stream-list">
+        <section className="content-grid dashboard-grid">
+          <article className="panel panel-large inventory-panel">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow">{translate(language, "recentStreams")}</p>
+                <h2>{translate(language, "streams")}</h2>
+              </div>
+              <button className="ghost-button" type="button" onClick={startNewStream}>{translate(language, "createStream")}</button>
+            </div>
+            <div className="inventory-head">
+              <span />
+              <span>{translate(language, "streams")}</span>
+              <span>{translate(language, "status")}</span>
+              <span>{translate(language, "model")}</span>
+              <span>{translate(language, "sourceHost")}</span>
+              <span>{translate(language, "lastEvent")}</span>
+            </div>
+            <div className="inventory-table">
               {recentStreams.length === 0 ? <p className="muted">{translate(language, "noStreams")}</p> : null}
               {recentStreams.map((stream) => (
-                <button key={stream.id} className={`stream-row ${stream.id === selectedStreamId ? "selected" : ""}`} type="button" onClick={() => openStreamEditor(stream.id)}>
-                  <div><strong>{stream.name}</strong><p>{stream.description}</p></div>
-                  <div className="stream-meta"><span className={statusClass(stream.status)}>{statusLabel(language, stream.status)}</span><small>{stream.active ? translate(language, "enabled") : translate(language, "disabled")}</small></div>
+                <button key={stream.id} className={`inventory-row ${stream.id === selectedStreamId ? "selected" : ""}`} type="button" onClick={() => openStreamEditor(stream.id)}>
+                  <span className={`inventory-led ${stream.status}`} aria-hidden="true" />
+                  <strong>{stream.name}</strong>
+                  <span>{statusLabel(language, stream.status)}</span>
+                  <span>{stream.onvif.model}</span>
+                  <span>{getHostLabel(stream.rtspUrl)}</span>
+                  <span>{getLastEventLabel(stream, language)}</span>
                 </button>
               ))}
             </div>
           </article>
-          <article className="panel"><div className="panel-header"><div><p className="eyebrow">{translate(language, "system")}</p><h2>{translate(language, "deploymentHints")}</h2></div></div><div className="settings-card"><p>{translate(language, "footer")}</p><p>{translate(language, "baseUrl")}: <strong>{baseUrl || "n/a"}</strong></p><p>{translate(language, "footerGitHub")}: <a href={githubUrl}>{githubUrl}</a></p><p>{translate(language, "cookieNotice")}</p></div></article>
+          <div className="dashboard-side">
+            <article className="panel hero-panel">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">{translate(language, "streamHealthBoard")}</p>
+                  <h2>{translate(language, "recorderReadiness")}</h2>
+                </div>
+              </div>
+              <div className="detail-grid">
+                <div className="mini-stat">
+                  <span>{translate(language, "activeStreams")}</span>
+                  <strong>{streams.filter((stream) => stream.active).length}</strong>
+                </div>
+                <div className="mini-stat">
+                  <span>{translate(language, "discoveredDevices")}</span>
+                  <strong>{streams.length}</strong>
+                </div>
+                <div className="mini-stat">
+                  <span>{translate(language, "sourceAddress")}</span>
+                  <strong>{baseUrl || "n/a"}</strong>
+                </div>
+                <div className="mini-stat">
+                  <span>{translate(language, "status")}</span>
+                  <strong>{streams.some((stream) => stream.status === "error") ? translate(language, "statusError") : translate(language, "statusHealthy")}</strong>
+                </div>
+              </div>
+            </article>
+            <article className="panel">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">{translate(language, "adoptionNotes")}</p>
+                  <h2>{translate(language, "deploymentSummary")}</h2>
+                </div>
+              </div>
+              <div className="settings-card">
+                <p>{translate(language, "adoptionHint")}</p>
+                <p>{translate(language, "baseUrl")}: <strong>{baseUrl || "n/a"}</strong></p>
+                <p>{translate(language, "footerGitHub")}: <a href={githubUrl}>{githubUrl}</a></p>
+                <p>{translate(language, "protectStyleHint")}</p>
+              </div>
+            </article>
+          </div>
         </section>
       </>
     ) : activePage === "streams" ? (
-      <section className="content-grid">
-        <article className="panel panel-large">
-          <div className="panel-header"><div><p className="eyebrow">{translate(language, "streamList")}</p><h2>{translate(language, "streams")}</h2></div><button className="ghost-button" type="button" onClick={startNewStream}>{translate(language, "createStream")}</button></div>
-          <div className="stream-list">
-            {streams.length === 0 ? <p className="muted">{translate(language, "noStreams")}</p> : null}
-            {streams.map((stream) => (
-              <button key={stream.id} className={`stream-row ${stream.id === selectedStreamId ? "selected" : ""}`} type="button" onClick={() => setSelectedStreamId(stream.id)}>
-                <div><strong>{stream.name}</strong><p>{stream.description}</p></div>
-                <div className="stream-meta"><span className={statusClass(stream.status)}>{statusLabel(language, stream.status)}</span><small>{stream.active ? translate(language, "enabled") : translate(language, "disabled")}</small></div>
-              </button>
-            ))}
+      <section className="content-grid streams-grid">
+        <article className="panel panel-large inventory-panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">{translate(language, "streamList")}</p>
+              <h2>{translate(language, "streams")}</h2>
+            </div>
+            <button className="ghost-button" type="button" onClick={startNewStream}>{translate(language, "createStream")}</button>
+          </div>
+          <div className="inventory-head">
+            <span />
+            <span>{translate(language, "streams")}</span>
+            <span>{translate(language, "status")}</span>
+            <span>{translate(language, "model")}</span>
+            <span>{translate(language, "sourceHost")}</span>
+            <span>{translate(language, "lastEvent")}</span>
+          </div>
+          <div className="inventory-table">
+            {streams.length === 0 ? <p className="muted">{translate(language, "noStreams")}</p> : inventoryRows}
           </div>
         </article>
         <article className="panel panel-large">
-          <div className="panel-header"><div><p className="eyebrow">{translate(language, "streamEditor")}</p><h2>{selectedStream?.name ?? translate(language, "createStream")}</h2></div><span className={selectedStream ? statusClass(selectedStream.status) : "status unknown"}>{selectedStream ? formatTimestamp(selectedStream.lastCheckAt, language) : translate(language, "noSelection")}</span></div>
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">{translate(language, "streamEditor")}</p>
+              <h2>{selectedStream?.name ?? translate(language, "createStream")}</h2>
+            </div>
+            <span className={selectedStream ? statusClass(selectedStream.status) : "status unknown"}>{selectedStream ? formatTimestamp(selectedStream.lastCheckAt, language) : translate(language, "noSelection")}</span>
+          </div>
           <form className="editor-form" onSubmit={(event) => { event.preventDefault(); void onSaveStream(); }}>
-            <label><span>Name</span><input value={streamForm.name} onChange={(event) => setStreamForm((current) => ({ ...current, name: event.target.value }))} /></label>
-            <label><span>Description</span><textarea value={streamForm.description} rows={3} onChange={(event) => setStreamForm((current) => ({ ...current, description: event.target.value }))} /></label>
-            <label><span>RTSP URL</span><input value={streamForm.rtspUrl} onChange={(event) => setStreamForm((current) => ({ ...current, rtspUrl: event.target.value }))} /></label>
-            <label><span>{translate(language, "recorderNotes")}</span><textarea value={streamForm.recorderNotes} rows={2} onChange={(event) => setStreamForm((current) => ({ ...current, recorderNotes: event.target.value }))} /></label>
-            <label className="checkbox"><input type="checkbox" checked={streamForm.active} onChange={(event) => setStreamForm((current) => ({ ...current, active: event.target.checked }))} /><span>{translate(language, "enabled")}</span></label>
-            <div className="split-grid"><label><span>{translate(language, "username")}</span><input value={streamForm.username} onChange={(event) => setStreamForm((current) => ({ ...current, username: event.target.value }))} /></label><label><span>{translate(language, "password")}</span><input type="password" value={streamForm.password} onChange={(event) => setStreamForm((current) => ({ ...current, password: event.target.value }))} /></label></div>
-            <div className="split-grid"><label><span>ONVIF Name</span><input value={streamForm.onvifName} onChange={(event) => setStreamForm((current) => ({ ...current, onvifName: event.target.value }))} /></label><label><span>ONVIF Model</span><input value={streamForm.onvifModel} onChange={(event) => setStreamForm((current) => ({ ...current, onvifModel: event.target.value }))} /></label></div>
-            <div className="editor-footer"><div><p className="eyebrow">{translate(language, "onvifEndpoint")}</p><strong>{selectedStream?.onvif.deviceServiceUrl ?? "/onvif/<stream>/device_service"}</strong></div><div className="button-row"><button className="ghost-button" type="button" disabled={!selectedStream || busy} onClick={() => void onTestStream()}>{translate(language, "testConnection")}</button><button className="ghost-button" type="button" disabled={!selectedStream || busy} onClick={() => void onToggleStream()}>{selectedStream?.active ? translate(language, "disabled") : translate(language, "enabled")}</button><button className="ghost-button" type="button" disabled={!selectedStream || busy} onClick={() => void onDeleteStream()}>{translate(language, "deleteStream")}</button><button className="primary-button" type="submit" disabled={busy}>{translate(language, "saveChanges")}</button></div></div>
+            <section className="form-section">
+              <div className="section-heading">
+                <p className="eyebrow">{translate(language, "configuration")}</p>
+              </div>
+              <label><span>Name</span><input value={streamForm.name} onChange={(event) => setStreamForm((current) => ({ ...current, name: event.target.value }))} /></label>
+              <label><span>Description</span><textarea value={streamForm.description} rows={3} onChange={(event) => setStreamForm((current) => ({ ...current, description: event.target.value }))} /></label>
+              <label><span>RTSP URL</span><input value={streamForm.rtspUrl} onChange={(event) => setStreamForm((current) => ({ ...current, rtspUrl: event.target.value }))} /></label>
+              <label><span>{translate(language, "recorderNotes")}</span><textarea value={streamForm.recorderNotes} rows={2} onChange={(event) => setStreamForm((current) => ({ ...current, recorderNotes: event.target.value }))} /></label>
+              <label className="checkbox"><input type="checkbox" checked={streamForm.active} onChange={(event) => setStreamForm((current) => ({ ...current, active: event.target.checked }))} /><span>{translate(language, "enabled")}</span></label>
+            </section>
+            <section className="form-section">
+              <div className="section-heading">
+                <p className="eyebrow">{translate(language, "identityAndAccess")}</p>
+              </div>
+              <div className="split-grid"><label><span>{translate(language, "username")}</span><input value={streamForm.username} onChange={(event) => setStreamForm((current) => ({ ...current, username: event.target.value }))} /></label><label><span>{translate(language, "password")}</span><input type="password" value={streamForm.password} onChange={(event) => setStreamForm((current) => ({ ...current, password: event.target.value }))} /></label></div>
+              <div className="split-grid"><label><span>ONVIF Name</span><input value={streamForm.onvifName} onChange={(event) => setStreamForm((current) => ({ ...current, onvifName: event.target.value }))} /></label><label><span>ONVIF Model</span><input value={streamForm.onvifModel} onChange={(event) => setStreamForm((current) => ({ ...current, onvifModel: event.target.value }))} /></label></div>
+            </section>
+            <div className="editor-footer">
+              <div>
+                <p className="eyebrow">{translate(language, "endpointAddress")}</p>
+                <strong>{selectedStream?.onvif.deviceServiceUrl ?? "/onvif/<stream>/device_service"}</strong>
+              </div>
+              <div className="button-row">
+                <button className="ghost-button" type="button" disabled={!selectedStream || busy} onClick={() => void onTestStream()}>{translate(language, "testConnection")}</button>
+                <button className="ghost-button" type="button" disabled={!selectedStream || busy} onClick={() => void onToggleStream()}>{selectedStream?.active ? translate(language, "disabled") : translate(language, "enabled")}</button>
+                <button className="ghost-button" type="button" disabled={!selectedStream || busy} onClick={() => void onDeleteStream()}>{translate(language, "deleteStream")}</button>
+                <button className="primary-button" type="submit" disabled={busy}>{translate(language, "saveChanges")}</button>
+              </div>
+            </div>
           </form>
         </article>
       </section>
     ) : activePage === "endpoints" ? (
-      <section className="content-grid">
-        <article className="panel panel-large">
+      <section className="content-grid streams-grid">
+        <article className="panel panel-large inventory-panel">
           <div className="panel-header"><div><p className="eyebrow">{translate(language, "endpoints")}</p><h2>{translate(language, "virtualCameras")}</h2></div></div>
-          <div className="stream-list">
-            {streams.length === 0 ? <p className="muted">{translate(language, "noStreams")}</p> : null}
-            {streams.map((stream) => (
-              <button key={stream.id} className="stream-row" type="button" onClick={() => openStreamEditor(stream.id)}>
-                <div><strong>{stream.name}</strong><p>{stream.onvif.name || stream.description}</p></div>
-                <div className="stream-meta"><span className={statusClass(stream.status)}>{statusLabel(language, stream.status)}</span><small>{stream.onvif.profileToken}</small></div>
-              </button>
-            ))}
+          <div className="inventory-head">
+            <span />
+            <span>{translate(language, "virtualCameras")}</span>
+            <span>{translate(language, "status")}</span>
+            <span>{translate(language, "model")}</span>
+            <span>{translate(language, "endpointAddress")}</span>
+            <span>{translate(language, "inspect")}</span>
+          </div>
+          <div className="inventory-table">
+            {streams.length === 0 ? <p className="muted">{translate(language, "noStreams")}</p> : endpointRows}
           </div>
         </article>
-        <article className="panel"><div className="panel-header"><div><p className="eyebrow">{translate(language, "deploymentHints")}</p><h2>{translate(language, "onvifEndpoint")}</h2></div></div>{selectedStream ? <div className="settings-card"><p>{translate(language, "deviceService")}: <strong>{selectedStream.onvif.deviceServiceUrl}</strong></p><p>{translate(language, "mediaService")}: <strong>{selectedStream.onvif.mediaServiceUrl}</strong></p><p>{translate(language, "recorderNotes")}: {selectedStream.recorderNotes || "n/a"}</p><button className="ghost-button" type="button" onClick={() => openStreamEditor(selectedStream.id)}>{translate(language, "openEditor")}</button></div> : <div className="settings-card"><p className="muted">{translate(language, "noSelection")}</p><p>{translate(language, "cookieNotice")}</p></div>}</article>
+        <article className="panel">
+          <div className="panel-header"><div><p className="eyebrow">{translate(language, "deploymentHints")}</p><h2>{translate(language, "onvifEndpoint")}</h2></div></div>
+          {selectedStream ? (
+            <div className="settings-card">
+              <div className="endpoint-card"><span>{translate(language, "deviceService")}</span><strong>{selectedStream.onvif.deviceServiceUrl}</strong></div>
+              <div className="endpoint-card"><span>{translate(language, "mediaService")}</span><strong>{selectedStream.onvif.mediaServiceUrl}</strong></div>
+              <div className="endpoint-card"><span>{translate(language, "recorderNotes")}</span><strong>{selectedStream.recorderNotes || "n/a"}</strong></div>
+              <button className="ghost-button align-start" type="button" onClick={() => openStreamEditor(selectedStream.id)}>{translate(language, "openEditor")}</button>
+            </div>
+          ) : <div className="settings-card"><p className="muted">{translate(language, "noSelection")}</p><p>{translate(language, "cookieNotice")}</p></div>}
+        </article>
       </section>
     ) : activePage === "users" ? (
       <section className="content-grid">
@@ -658,6 +801,7 @@ export function App() {
               <h1>{translate(language, activePage)}</h1>
               <p className="muted">{translate(language, PAGE_HINTS[activePage])}</p>
             </div>
+            <div className="topbar-center">Protect-style console</div>
             <div className="topbar-actions">
               {languageMenu}
               <button className="pill" type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}><ThemeIcon theme={theme} /></button>

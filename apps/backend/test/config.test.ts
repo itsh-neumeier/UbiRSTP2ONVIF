@@ -90,4 +90,19 @@ describe("loadConfig", () => {
       }
     );
   });
+
+  it("loads ONVIF basic auth credentials from env", () => {
+    withEnv(
+      {
+        DATA_DIR: createTempDataDir(),
+        ONVIF_USERNAME: "onvif-user",
+        ONVIF_PASSWORD: "ProtectPass123!"
+      },
+      () => {
+        const config = loadConfig();
+        expect(config.onvifUsername).toBe("onvif-user");
+        expect(config.onvifPassword).toBe("ProtectPass123!");
+      }
+    );
+  });
 });

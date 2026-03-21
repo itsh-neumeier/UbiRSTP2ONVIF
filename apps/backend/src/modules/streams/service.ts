@@ -267,9 +267,11 @@ export function buildWorkerDeploymentSpec(record: StreamRecord, config: AppConfi
     `      GO2RTC_RTSP_PORT: ${config.go2rtcRtspPort}`,
     `      GO2RTC_API_PORT: ${config.go2rtcApiPort}`,
     `      GO2RTC_STREAM_NAME: ${yamlScalar(config.go2rtcStreamName)}`,
+    `      ONVIF_USERNAME: ${yamlScalar(config.onvifUsername)}`,
+    `      ONVIF_PASSWORD: ${yamlScalar(config.onvifPassword ?? "change-me-now")}`,
     `      ONVIF_DISCOVERY_ENABLED: ${yamlScalar("true")}`,
     "    volumes:",
-    `      - ${yamlScalar("ubirstp2onvif-data:/data")}`,
+    `      - ${yamlScalar("ubirstp2onvif-control-plane-data:/data")}`,
     "    restart: unless-stopped",
     ...networkSection,
     `  ${stream.worker.serviceName}-go2rtc:`,
@@ -282,8 +284,8 @@ export function buildWorkerDeploymentSpec(record: StreamRecord, config: AppConfi
     "    restart: unless-stopped",
     "",
     "volumes:",
-    "  ubirstp2onvif-data:",
-    "    name: ubirstp2onvif-data",
+    "  ubirstp2onvif-control-plane-data:",
+    "    name: ubirstp2onvif-control-plane-data",
     ...externalNetworkSection
   ]
     .filter(Boolean)

@@ -38,6 +38,8 @@ For the UniFi-specific deployment shape, the recommended model is:
 - one `go2rtc` sidecar per worker, sharing the worker network namespace via `network_mode: service:<worker>`
 - no shared camera IP for multiple UniFi-adopted streams
 
+Worker ONVIF endpoints can enforce HTTP Basic auth when `ONVIF_PASSWORD` is set. This is the credential pair UniFi should use during Advanced Adoption.
+
 If you prefer not to hand-write per-worker YAML, a static compose generator works well: keep a worker template, substitute camera name, worker IP, and upstream RTSP settings, then emit one service per camera.
 
 For worker-side media handling, `go2rtc` is a good fit because it can expose RTSP on `8554` and its API on `1984`. Those ports are assumptions, not hard requirements, so a generator or overlay can change them per worker if needed.
@@ -94,15 +96,24 @@ services:
     # Replace this placeholder with a dedicated macvlan or ipvlan network.
     # UniFi-facing workers should not share one IP.
     environment:
+      APP_ROLE: worker
+      WORKER_STREAM_ID: replace-with-stream-id
       PORT: 8080
       DATA_DIR: /data
       APP_BASE_URL: http://192.168.10.201:8080
-      ADMIN_USERNAME: admin
-      ADMIN_PASSWORD: change-me-now
+      ONVIF_USERNAME: onvif
+      ONVIF_PASSWORD: change-me-now
       ONVIF_DISCOVERY_ENABLED: "true"
       ONVIF_DISCOVERY_PORT: 3702
+      GO2RTC_RTSP_PORT: 8554
+      GO2RTC_API_PORT: 1984
+      GO2RTC_STREAM_NAME: camera
     volumes:
-      - ubirstp2onvif-worker-data:/data
+      # While worker stream config is DB-backed, workers must use the same data volume.
+      - ubirstp2onvif-control-plane-data:/data
+    networks:
+      worker-lan:
+        ipv4_address: 192.168.10.201
     restart: unless-stopped
 
   go2rtc-sidecar:
@@ -124,8 +135,11 @@ services:
 
 volumes:
   ubirstp2onvif-control-plane-data:
-  ubirstp2onvif-worker-data:
   ubirstp2onvif-go2rtc-data:
+
+networks:
+  worker-lan:
+    external: true
 ```
 
 ### 2. Open the Web UI
@@ -146,6 +160,7 @@ If you deploy this stack through Portainer, keep the control plane simple first:
 - avoid browser-blocked ports such as `10080`
 - set `APP_BASE_URL` to the real address users or recorders reach, for example `http://192.168.140.30:8080`
 - when you use a published host port, keep `ports` and `PORT` aligned, for example `8080:8080`
+- if you intentionally map to a different public port such as `10081:8080`, set `APP_BASE_URL` to `http://<host-ip>:10081`
 - do not keep `build:` in the Portainer stack if you want to run the published GHCR image directly
 
 Minimal Portainer control-plane example:
@@ -176,9 +191,13 @@ Worker-specific Portainer notes:
 - UniFi-facing workers should use their own LAN IP, typically through `macvlan` or `ipvlan`
 - for those dedicated-IP workers, `APP_BASE_URL` must point to the worker IP, not the control-plane IP
 - workers usually do not need published host ports when the recorder reaches the worker IP directly
+- worker containers must include `APP_ROLE=worker` and `WORKER_STREAM_ID=<stream-id>`
+- set `ONVIF_USERNAME` and `ONVIF_PASSWORD` on each worker; UniFi uses these credentials during adoption
 - publish `3702/udp` only if that specific worker should answer ONVIF discovery on the host network
 - `go2rtc` RTSP on `8554` normally stays inside the worker namespace; only publish it if you explicitly want host-side testing
 - the control plane can generate per-camera compose previews, but Portainer still needs one worker service per camera identity
+- with the current DB-backed worker model, workers and control-plane must share the same persistent data volume
+- if your UniFi build only probes ONVIF on port `80`, run the worker with `PORT=80` and `APP_BASE_URL=http://<worker-ip>` (no port suffix)
 
 ## Configuration
 
@@ -187,8 +206,12 @@ Worker-specific Portainer notes:
 | `PORT` | `8080` | HTTP listen port |
 | `DATA_DIR` | `/data` in Docker | Persistent storage directory |
 | `APP_BASE_URL` | `http://localhost:8080` | Public base URL used in ONVIF responses |
+| `APP_ROLE` | `control-plane` | Process role: control-plane or worker |
+| `WORKER_STREAM_ID` | none | Required when `APP_ROLE=worker` |
 | `ADMIN_USERNAME` | `admin` | First-run admin account name |
 | `ADMIN_PASSWORD` | none | First-run admin password |
+| `ONVIF_USERNAME` | `admin` | ONVIF HTTP Basic username |
+| `ONVIF_PASSWORD` | none | Enables ONVIF HTTP Basic auth when set |
 | `SESSION_TTL_HOURS` | `24` | Session lifetime |
 | `HEALTHCHECK_INTERVAL_SECONDS` | `120` | Automatic stream test interval |
 | `ONVIF_DISCOVERY_ENABLED` | `true` | Enable WS-Discovery responder |
@@ -212,7 +235,8 @@ UniFi worker notes:
 - Instance secret file: `${DATA_DIR}/instance-secrets.json`
 - Schema changes are applied automatically on startup through embedded migrations
 - Persistent volumes are intended to remain forward-compatible across releases
-- If you split the deployment into control-plane and worker containers, keep one persistent volume per worker so credentials and runtime state stay isolated
+- Current worker mode reads stream config directly from SQLite, so workers must mount the same persistent volume as the control-plane
+- Per-worker isolated runtime volumes are planned for a later worker-runtime model that no longer depends on shared SQLite access
 - If you add `go2rtc` sidecars, keep one config volume per worker-sidecar pair so the generated relay settings remain isolated too
 
 ## Admin CLI

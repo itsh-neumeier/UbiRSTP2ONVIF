@@ -25,6 +25,8 @@ async function createTestApp(overrides: Record<string, string> = {}, dataDir?: s
   delete process.env.GO2RTC_RTSP_PORT;
   delete process.env.GO2RTC_API_PORT;
   delete process.env.GO2RTC_STREAM_NAME;
+  delete process.env.ONVIF_USERNAME;
+  delete process.env.ONVIF_PASSWORD;
 
   for (const [key, value] of Object.entries(overrides)) {
     process.env[key] = value;
@@ -284,6 +286,82 @@ describe("backend application", () => {
     expect(deviceInfo.statusCode).toBe(200);
     expect(deviceInfo.body).toContain("http://192.168.10.60:8080/onvif/device_service");
     expect(deviceInfo.body).toContain("http://192.168.10.60:8080/onvif/media_service");
+
+    await worker.close();
+  });
+
+  it("requires ONVIF basic auth when ONVIF_PASSWORD is configured", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "ubirstp2onvif-worker-auth-"));
+    cleanupPaths.push(dataDir);
+
+    const controlPlane = await createTestApp({}, dataDir);
+    const login = await controlPlane.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: {
+        username: "admin",
+        password: "AdminPassword123!"
+      }
+    });
+
+    const cookie = login.cookies[0]?.value;
+    const created = await controlPlane.inject({
+      method: "POST",
+      url: "/api/streams",
+      cookies: {
+        [controlPlane.config.cookieName]: cookie
+      },
+      payload: {
+        name: "Frontdoor",
+        description: "Worker auth route",
+        rtspUrl: "rtsp://camera.example.com/frontdoor",
+        active: true,
+        workerMode: "dedicated",
+        advertisedHost: "192.168.10.61"
+      }
+    });
+
+    const streamId = created.json().stream.id as string;
+    await controlPlane.close();
+
+    const worker = await createTestApp(
+      {
+        APP_ROLE: "worker",
+        WORKER_STREAM_ID: streamId,
+        APP_BASE_URL: "http://192.168.10.61:8080",
+        ONVIF_USERNAME: "onvif",
+        ONVIF_PASSWORD: "ProtectPass123!"
+      },
+      dataDir
+    );
+
+    const unauthorized = await worker.inject({
+      method: "POST",
+      url: "/onvif/device_service",
+      headers: {
+        "content-type": "application/soap+xml"
+      },
+      payload:
+        '<?xml version="1.0" encoding="UTF-8"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body><tds:GetDeviceInformation xmlns:tds="http://www.onvif.org/ver10/device/wsdl" /></s:Body></s:Envelope>'
+    });
+
+    expect(unauthorized.statusCode).toBe(401);
+    expect(unauthorized.headers["www-authenticate"]).toContain("Basic");
+
+    const authHeader = `Basic ${Buffer.from("onvif:ProtectPass123!", "utf8").toString("base64")}`;
+    const authorized = await worker.inject({
+      method: "POST",
+      url: "/onvif/device_service",
+      headers: {
+        "content-type": "application/soap+xml",
+        authorization: authHeader
+      },
+      payload:
+        '<?xml version="1.0" encoding="UTF-8"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body><tds:GetDeviceInformation xmlns:tds="http://www.onvif.org/ver10/device/wsdl" /></s:Body></s:Envelope>'
+    });
+
+    expect(authorized.statusCode).toBe(200);
+    expect(authorized.body).toContain("GetDeviceInformationResponse");
 
     await worker.close();
   });

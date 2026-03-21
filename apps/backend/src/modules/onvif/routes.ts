@@ -1,5 +1,5 @@
 import { createSocket, type Socket } from "node:dgram";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 
 import { getStreamById, listStreams } from "../../db/database.js";
@@ -71,6 +71,59 @@ function discoveryXml(app: FastifyInstance, streamId: string, relatesTo: string)
     </d:ProbeMatches>
   </e:Body>
 </e:Envelope>`;
+}
+
+function safeCompare(left: string, right: string) {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+  return timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function parseBasicAuthHeader(header?: string) {
+  if (!header?.startsWith("Basic ")) {
+    return null;
+  }
+  const encoded = header.slice(6).trim();
+  if (!encoded) {
+    return null;
+  }
+
+  try {
+    const decoded = Buffer.from(encoded, "base64").toString("utf8");
+    const separator = decoded.indexOf(":");
+    if (separator < 0) {
+      return null;
+    }
+    return {
+      username: decoded.slice(0, separator),
+      password: decoded.slice(separator + 1)
+    };
+  } catch {
+    return null;
+  }
+}
+
+function readAuthorizationHeader(header: string | string[] | undefined) {
+  if (Array.isArray(header)) {
+    return header[0];
+  }
+  return header;
+}
+
+function requireOnvifAuth(app: FastifyInstance, authorizationHeader: string | string[] | undefined) {
+  if (!app.config.onvifPassword) {
+    return true;
+  }
+
+  const credentials = parseBasicAuthHeader(readAuthorizationHeader(authorizationHeader));
+  if (!credentials) {
+    return false;
+  }
+
+  return safeCompare(credentials.username, app.config.onvifUsername) && safeCompare(credentials.password, app.config.onvifPassword);
 }
 
 export async function registerOnvifRoutes(app: FastifyInstance): Promise<void> {
@@ -250,6 +303,10 @@ export async function registerOnvifRoutes(app: FastifyInstance): Promise<void> {
   };
 
   app.post("/onvif/:streamId/device_service", async (request, reply) => {
+    if (!requireOnvifAuth(app, request.headers.authorization)) {
+      reply.header("WWW-Authenticate", 'Basic realm="ONVIF", charset="UTF-8"').code(401).send();
+      return;
+    }
     const params = request.params as { streamId: string };
     const body = typeof request.body === "string" ? request.body : String(request.body ?? "");
     const result = await handleSoap(params.streamId, body, "device");
@@ -257,6 +314,10 @@ export async function registerOnvifRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/onvif/:streamId/media_service", async (request, reply) => {
+    if (!requireOnvifAuth(app, request.headers.authorization)) {
+      reply.header("WWW-Authenticate", 'Basic realm="ONVIF", charset="UTF-8"').code(401).send();
+      return;
+    }
     const params = request.params as { streamId: string };
     const body = typeof request.body === "string" ? request.body : String(request.body ?? "");
     const result = await handleSoap(params.streamId, body, "media");
@@ -264,6 +325,10 @@ export async function registerOnvifRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/onvif/:streamId/snapshot", async (request, reply) => {
+    if (!requireOnvifAuth(app, request.headers.authorization)) {
+      reply.header("WWW-Authenticate", 'Basic realm="ONVIF", charset="UTF-8"').code(401).send();
+      return;
+    }
     const params = request.params as { streamId: string };
     const resolvedStreamId = resolveStreamId(app, params.streamId);
     const stream = resolvedStreamId ? getStreamById(app.db, resolvedStreamId) : null;
@@ -288,18 +353,30 @@ export async function registerOnvifRoutes(app: FastifyInstance): Promise<void> {
 
   if (app.config.appRole === "worker") {
     app.post("/onvif/device_service", async (request, reply) => {
+      if (!requireOnvifAuth(app, request.headers.authorization)) {
+        reply.header("WWW-Authenticate", 'Basic realm="ONVIF", charset="UTF-8"').code(401).send();
+        return;
+      }
       const body = typeof request.body === "string" ? request.body : String(request.body ?? "");
       const result = await handleSoap(null, body, "device");
       reply.type("application/soap+xml; charset=utf-8").code(result.code).send(result.payload);
     });
 
     app.post("/onvif/media_service", async (request, reply) => {
+      if (!requireOnvifAuth(app, request.headers.authorization)) {
+        reply.header("WWW-Authenticate", 'Basic realm="ONVIF", charset="UTF-8"').code(401).send();
+        return;
+      }
       const body = typeof request.body === "string" ? request.body : String(request.body ?? "");
       const result = await handleSoap(null, body, "media");
       reply.type("application/soap+xml; charset=utf-8").code(result.code).send(result.payload);
     });
 
-    app.get("/onvif/snapshot", async (_request, reply) => {
+    app.get("/onvif/snapshot", async (request, reply) => {
+      if (!requireOnvifAuth(app, request.headers.authorization)) {
+        reply.header("WWW-Authenticate", 'Basic realm="ONVIF", charset="UTF-8"').code(401).send();
+        return;
+      }
       const stream = app.config.workerStreamId ? getStreamById(app.db, app.config.workerStreamId) : null;
       if (!stream) {
         reply.code(404).type("text/plain; charset=utf-8").send("Snapshot not available.");

@@ -40,6 +40,8 @@ Fuer die UniFi-spezifische Bereitstellung ist folgendes Modell empfehlenswert:
 - ein `go2rtc`-Sidecar pro Worker, der per `network_mode: service:<worker>` im selben Netzwerk-Namespace laeuft
 - keine geteilte Kamera-IP fuer mehrere UniFi-adoptierte Streams
 
+ONVIF-Endpunkte eines Workers koennen HTTP-Basic-Auth erzwingen, sobald `ONVIF_PASSWORD` gesetzt ist. Genau diese Credentials sollte UniFi bei Advanced Adoption verwenden.
+
 Wenn du kein YAML von Hand pflegen willst, funktioniert ein statischer Compose-Generator gut: Worker-Template behalten, Kameraname, Worker-IP und Upstream-RTSP-Werte einsetzen und daraus einen Service pro Kamera erzeugen.
 
 Fuer die Medienseite ist `go2rtc` passend, weil es RTSP auf `8554` und die API auf `1984` bereitstellen kann. Diese Ports sind Annahmen und sollen bewusst konfigurierbar bleiben, damit Generatoren oder Overlays sie pro Worker anpassen koennen.
@@ -96,15 +98,25 @@ services:
     # Dieses Platzhalter-Setup sollte vor produktivem Einsatz auf ein
     # dediziertes macvlan- oder ipvlan-Netz umgestellt werden.
     environment:
+      APP_ROLE: worker
+      WORKER_STREAM_ID: replace-with-stream-id
       PORT: 8080
       DATA_DIR: /data
       APP_BASE_URL: http://192.168.10.201:8080
-      ADMIN_USERNAME: admin
-      ADMIN_PASSWORD: change-me-now
+      ONVIF_USERNAME: onvif
+      ONVIF_PASSWORD: change-me-now
       ONVIF_DISCOVERY_ENABLED: "true"
       ONVIF_DISCOVERY_PORT: 3702
+      GO2RTC_RTSP_PORT: 8554
+      GO2RTC_API_PORT: 1984
+      GO2RTC_STREAM_NAME: camera
     volumes:
-      - ubirstp2onvif-worker-data:/data
+      # Solange Worker ihre Konfiguration aus SQLite lesen, muss das gleiche
+      # Daten-Volume wie bei der Control Plane eingehangen werden.
+      - ubirstp2onvif-control-plane-data:/data
+    networks:
+      worker-lan:
+        ipv4_address: 192.168.10.201
     restart: unless-stopped
 
   go2rtc-sidecar:
@@ -126,8 +138,11 @@ services:
 
 volumes:
   ubirstp2onvif-control-plane-data:
-  ubirstp2onvif-worker-data:
   ubirstp2onvif-go2rtc-data:
+
+networks:
+  worker-lan:
+    external: true
 ```
 
 ### 2. WebUI aufrufen
@@ -148,6 +163,7 @@ Wenn du den Stack ueber Portainer ausrollst, starte zuerst mit einer einfachen C
 - keine browsergesperrten Ports wie `10080` verwenden
 - `APP_BASE_URL` muss auf die echte von Benutzern oder Recordern erreichbare Adresse zeigen, zum Beispiel `http://192.168.140.30:8080`
 - wenn du einen Host-Port veroeffentlichst, muessen `ports` und `PORT` zusammenpassen, zum Beispiel `8080:8080`
+- wenn du bewusst einen anderen externen Port nutzt, etwa `10081:8080`, muss `APP_BASE_URL` auf `http://<host-ip>:10081` zeigen
 - `build:` im Portainer-Stack weglassen, wenn direkt das veroeffentlichte GHCR-Image genutzt werden soll
 
 Minimales Portainer-Beispiel fuer die Control Plane:
@@ -178,9 +194,13 @@ Worker-spezifische Hinweise fuer Portainer:
 - UniFi-seitige Worker sollten eine eigene LAN-IP bekommen, typischerweise ueber `macvlan` oder `ipvlan`
 - bei solchen dedizierten Workern muss `APP_BASE_URL` auf die Worker-IP zeigen, nicht auf die IP der Control Plane
 - Worker brauchen normalerweise keine veroeffentlichten Host-Ports, wenn der Recorder die Worker-IP direkt erreicht
+- Worker muessen `APP_ROLE=worker` und `WORKER_STREAM_ID=<stream-id>` gesetzt haben
+- `ONVIF_USERNAME` und `ONVIF_PASSWORD` pro Worker setzen; UniFi nutzt diese Daten bei der Adoption
 - `3702/udp` nur dann veroeffentlichen, wenn genau dieser Worker ONVIF-Discovery ueber das Host-Netz beantworten soll
 - `go2rtc` auf `8554` bleibt im Normalfall im Namespace des Workers; nur fuer explizite Host-Tests muss dieser Port nach aussen freigegeben werden
 - die Control Plane kann pro Kamera Compose-Vorschauen erzeugen, aber in Portainer bleibt weiterhin ein eigener Worker-Service pro Kameraidentitaet noetig
+- im aktuellen DB-basierten Worker-Modell muessen Worker und Control Plane dasselbe Daten-Volume verwenden
+- falls deine UniFi-Version ONVIF nur auf Port `80` prueft, den Worker mit `PORT=80` und `APP_BASE_URL=http://<worker-ip>` betreiben
 
 ## Konfiguration
 
@@ -189,8 +209,12 @@ Worker-spezifische Hinweise fuer Portainer:
 | `PORT` | `8080` | HTTP-Port |
 | `DATA_DIR` | `/data` in Docker | Persistentes Datenverzeichnis |
 | `APP_BASE_URL` | `http://localhost:8080` | Oeffentliche Basis-URL fuer ONVIF-Antworten |
+| `APP_ROLE` | `control-plane` | Prozessrolle: Control Plane oder Worker |
+| `WORKER_STREAM_ID` | keiner | Pflicht, wenn `APP_ROLE=worker` gesetzt ist |
 | `ADMIN_USERNAME` | `admin` | Name des ersten Admin-Benutzers |
 | `ADMIN_PASSWORD` | keiner | Passwort des ersten Admin-Benutzers |
+| `ONVIF_USERNAME` | `admin` | ONVIF-HTTP-Basic-Benutzername |
+| `ONVIF_PASSWORD` | keiner | Aktiviert ONVIF-HTTP-Basic-Auth, wenn gesetzt |
 | `SESSION_TTL_HOURS` | `24` | Session-Lebensdauer |
 | `HEALTHCHECK_INTERVAL_SECONDS` | `120` | Intervall fuer automatische Stream-Tests |
 | `ONVIF_DISCOVERY_ENABLED` | `true` | WS-Discovery aktivieren |
@@ -214,7 +238,8 @@ Hinweise fuer UniFi-Worker:
 - Instanz-Geheimnisse: `${DATA_DIR}/instance-secrets.json`
 - Schema-Aenderungen werden beim Start automatisch ueber eingebettete Migrationen angewendet
 - Persistente Volumes sollen release-uebergreifend kompatibel bleiben
-- Wenn du Control Plane und Worker trennst, verwende pro Worker ein eigenes Volume, damit Zugangsdaten und Laufzeitstatus isoliert bleiben
+- Das aktuelle Worker-Modell liest Stream-Konfigurationen direkt aus SQLite, daher muessen Worker dasselbe persistente Volume wie die Control Plane einhaengen
+- Isolierte Runtime-Volumes pro Worker sind fuer ein spaeteres Worker-Runtime-Modell vorgesehen, das nicht mehr direkt von geteilter SQLite-Nutzung abhaengt
 - Wenn du `go2rtc`-Sidecars ergaenzst, verwende pro Worker-Sidecar-Paar ein eigenes Konfigurationsvolume, damit die Relay-Einstellungen getrennt bleiben
 
 ## Admin-CLI
