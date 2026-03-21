@@ -65,7 +65,7 @@ export function loadConfig() {
     githubUrl: parsed.GITHUB_URL,
     cookieName: parsed.COOKIE_NAME,
     cookieSecure:
-      parsed.COOKIE_SECURE ?? baseUrl.startsWith("https://") || parsed.NODE_ENV === "production",
+      parsed.COOKIE_SECURE ?? (baseUrl.startsWith("https://") || parsed.NODE_ENV === "production"),
     sessionTtlHours: parsed.SESSION_TTL_HOURS,
     healthcheckIntervalSeconds: parsed.HEALTHCHECK_INTERVAL_SECONDS,
     adminUsername: parsed.ADMIN_USERNAME,
