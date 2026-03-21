@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitForElementToBeRemoved } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { App } from "../app";
@@ -21,6 +21,7 @@ describe("App", () => {
     localStorage.clear();
     window.location.hash = "";
     fetchMock.mockReset();
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -97,7 +98,11 @@ describe("App", () => {
       )
       .mockImplementationOnce(() => jsonResponse({ error: "Authentication required." }, 401));
 
-    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
+    const originalSetTimeout = window.setTimeout.bind(window);
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+      const effectiveTimeout = timeout === 3200 ? 25 : timeout;
+      return originalSetTimeout(handler, effectiveTimeout, ...args);
+    }) as typeof window.setTimeout);
 
     try {
       const user = userEvent.setup();
@@ -106,6 +111,10 @@ describe("App", () => {
       await user.click(await screen.findByRole("button", { name: /sign in/i }));
       expect(await screen.findByText("Authentication required.")).toBeInTheDocument();
       expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 3200);
+
+      await waitForElementToBeRemoved(() => screen.queryByText("Authentication required."), {
+        timeout: 1000
+      });
     } finally {
       setTimeoutSpy.mockRestore();
     }
