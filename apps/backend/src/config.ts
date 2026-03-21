@@ -8,7 +8,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(8080),
   DATA_DIR: z.string().min(1).default(join(process.cwd(), ".data")),
   APP_BASE_URL: z.string().url().optional(),
-  APP_VERSION: z.string().default("0.1.0"),
+  APP_VERSION: z.string().default("0.1.1"),
   COOKIE_NAME: z.string().min(1).default("ubirstp2onvif.sid"),
   COOKIE_SECURE: z.coerce.boolean().optional(),
   SESSION_TTL_HOURS: z.coerce.number().int().positive().default(24),
@@ -17,7 +17,7 @@ const envSchema = z.object({
   ADMIN_PASSWORD: z.string().min(8).optional(),
   ONVIF_DISCOVERY_ENABLED: z.coerce.boolean().default(true),
   ONVIF_DISCOVERY_PORT: z.coerce.number().int().positive().default(3702),
-  GITHUB_URL: z.string().url().default("https://github.com/example/UbiRSTP2ONVIF")
+  GITHUB_URL: z.string().url().default("https://github.com/itsh-neumeier/UbiRSTP2ONVIF")
 });
 
 type InstanceSecrets = {

@@ -27,8 +27,8 @@ describe("App", () => {
       .mockImplementationOnce(() =>
         jsonResponse({
           appName: "UbiRSTP2ONVIF",
-          version: "0.1.0",
-          githubUrl: "https://github.com/example/UbiRSTP2ONVIF",
+          version: "0.1.1",
+          githubUrl: "https://github.com/itsh-neumeier/UbiRSTP2ONVIF",
           baseUrl: "http://localhost:8080",
           locale: "en",
           authenticated: false
@@ -63,8 +63,8 @@ describe("App", () => {
     fetchMock.mockImplementationOnce(() =>
       jsonResponse({
         appName: "UbiRSTP2ONVIF",
-        version: "0.1.0",
-        githubUrl: "https://github.com/example/UbiRSTP2ONVIF",
+        version: "0.1.1",
+        githubUrl: "https://github.com/itsh-neumeier/UbiRSTP2ONVIF",
         baseUrl: "http://localhost:8080",
         locale: "en",
         authenticated: false
@@ -86,8 +86,8 @@ describe("App", () => {
       .mockImplementationOnce(() =>
         jsonResponse({
           appName: "UbiRSTP2ONVIF",
-          version: "0.1.0",
-          githubUrl: "https://github.com/example/UbiRSTP2ONVIF",
+          version: "0.1.1",
+          githubUrl: "https://github.com/itsh-neumeier/UbiRSTP2ONVIF",
           baseUrl: "http://localhost:8080",
           locale: "en",
           authenticated: false
@@ -131,7 +131,7 @@ describe("App", () => {
                 manufacturer: "UbiRSTP2ONVIF",
                 model: "Virtual RTSP Bridge",
                 hardwareId: "virtual-bridge",
-                firmwareVersion: "0.1.0"
+                firmwareVersion: "0.1.1"
               },
               createdAt: "",
               updatedAt: ""

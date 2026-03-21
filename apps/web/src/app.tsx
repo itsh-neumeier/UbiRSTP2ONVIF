@@ -89,8 +89,8 @@ function statusLabel(language: Language, status: ApiStream["status"]) {
 export function App() {
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
   const [language, setLanguage] = useState<Language>(getInitialLanguage);
-  const [version, setVersion] = useState("0.1.0");
-  const [githubUrl, setGithubUrl] = useState("https://github.com/example/UbiRSTP2ONVIF");
+  const [version, setVersion] = useState("0.1.1");
+  const [githubUrl, setGithubUrl] = useState("https://github.com/itsh-neumeier/UbiRSTP2ONVIF");
   const [authenticated, setAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);

@@ -2,7 +2,7 @@ services:
   ubirstp2onvif:
     build:
       context: .
-    image: ghcr.io/example/ubirstp2onvif:dev
+    image: ghcr.io/itsh-neumeier/ubirstp2onvif:latest
     ports:
       - "8080:8080"
       - "3702:3702/udp"

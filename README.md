@@ -51,7 +51,7 @@ CHANGELOG.md         Keep a Changelog structure
 ```yaml
 services:
   ubirstp2onvif:
-    image: ghcr.io/your-org/ubirstp2onvif:latest
+    image: ghcr.io/itsh-neumeier/ubirstp2onvif:latest
     build:
       context: .
     ports:
