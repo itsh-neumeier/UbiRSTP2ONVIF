@@ -1,6 +1,6 @@
 {
   "name": "@ubirstp2onvif/backend",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "main": "dist/index.js",

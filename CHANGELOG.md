@@ -7,6 +7,15 @@ and [Semantic Versioning 2.0.0](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-03-21
+
+### Fixed
+- Stabilized the WebUI test suite after the worker and go2rtc architecture update so CI now passes reliably on `main`.
+- Refined toast-notification test coverage to avoid flaky timer behavior in GitHub Actions.
+
+### Changed
+- Added Portainer-specific deployment guidance in both English and German READMEs, including `APP_BASE_URL`, HTTP/port notes, and worker-IP hints for UniFi.
+
 ## [0.2.0] - 2026-03-21
 
 ### Added

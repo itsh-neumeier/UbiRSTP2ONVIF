@@ -127,7 +127,7 @@ function pageFromHash(hash: string): AppPage | null {
 export function App() {
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
   const [language, setLanguage] = useState<Language>(getInitialLanguage);
-  const [version, setVersion] = useState("0.2.0");
+  const [version, setVersion] = useState("0.2.1");
   const [githubUrl, setGithubUrl] = useState("https://github.com/itsh-neumeier/UbiRSTP2ONVIF");
   const [baseUrl, setBaseUrl] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
