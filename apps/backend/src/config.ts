@@ -31,7 +31,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(8080),
   DATA_DIR: z.string().min(1).default(join(process.cwd(), ".data")),
   APP_BASE_URL: z.string().url().optional(),
-  APP_VERSION: z.string().default("0.2.1"),
+  APP_VERSION: z.string().default("0.2.2"),
   WORKER_STREAM_ID: z.string().min(1).optional(),
   GO2RTC_RTSP_PORT: z.coerce.number().int().positive().default(8554),
   GO2RTC_API_PORT: z.coerce.number().int().positive().default(1984),

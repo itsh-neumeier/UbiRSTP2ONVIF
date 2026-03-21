@@ -7,6 +7,17 @@ and [Semantic Versioning 2.0.0](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-03-21
+
+### Added
+- Added worker-side ONVIF HTTP Basic authentication via `ONVIF_USERNAME` and `ONVIF_PASSWORD`.
+- Added backend tests for worker ONVIF authentication and config parsing of ONVIF credentials.
+
+### Changed
+- Refined Docker Compose and compose-preview output so worker examples include `APP_ROLE`, `WORKER_STREAM_ID`, and ONVIF credential env values.
+- Expanded English and German README guidance for Portainer, dedicated worker IPs, external/public port mapping, and current shared-volume behavior in DB-backed worker mode.
+- Updated the WebUI layout to a denser, more UniFi Protect-inspired operations view.
+
 ## [0.2.1] - 2026-03-21
 
 ### Fixed
