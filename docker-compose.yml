@@ -1,0 +1,28 @@
+services:
+  ubirstp2onvif:
+    build:
+      context: .
+    image: ghcr.io/example/ubirstp2onvif:dev
+    ports:
+      - "8080:8080"
+      - "3702:3702/udp"
+    environment:
+      PORT: 8080
+      DATA_DIR: /data
+      APP_BASE_URL: http://localhost:8080
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: change-me-now
+    volumes:
+      - ubirstp2onvif-data:/data
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  ubirstp2onvif-data:

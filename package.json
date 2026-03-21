@@ -1,0 +1,17 @@
+{
+  "name": "ubirstp2onvif",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Docker-first RTSP to ONVIF bridge with admin web UI.",
+  "license": "MIT",
+  "packageManager": "npm@10.9.2",
+  "workspaces": [
+    "apps/backend",
+    "apps/web"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "dev": "npm run dev --workspace apps/backend"
+  }
+}
