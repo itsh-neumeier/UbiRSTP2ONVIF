@@ -1,4 +1,4 @@
-import { render, screen, waitForElementToBeRemoved } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { App } from "../app";
@@ -21,6 +21,7 @@ describe("App", () => {
     localStorage.clear();
     window.location.hash = "";
     fetchMock.mockReset();
+    vi.useRealTimers();
   });
 
   it("renders login and allows sign in", async () => {
@@ -96,16 +97,27 @@ describe("App", () => {
       )
       .mockImplementationOnce(() => jsonResponse({ error: "Authentication required." }, 401));
 
-    const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: /sign in/i }));
-    expect(await screen.findByText("Authentication required.")).toBeInTheDocument();
+    const signInButton = await screen.findByRole("button", { name: /sign in/i });
 
-    await waitForElementToBeRemoved(() => screen.queryByText("Authentication required."), {
-      timeout: 6000
+    vi.useFakeTimers();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    await user.click(signInButton);
+
+    await act(async () => {
+      await Promise.resolve();
     });
-  }, 10000);
+
+    expect(screen.getByText("Authentication required.")).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3300);
+    });
+
+    expect(screen.queryByText("Authentication required.")).not.toBeInTheDocument();
+  });
 
   it("loads the stream editor with API data", async () => {
     fetchMock
