@@ -97,26 +97,32 @@ describe("App", () => {
       )
       .mockImplementationOnce(() => jsonResponse({ error: "Authentication required." }, 401));
 
-    render(<App />);
+    const timeoutCallbacks: Array<() => void> = [];
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(((handler: TimerHandler) => {
+      if (typeof handler === "function") {
+        timeoutCallbacks.push(handler);
+      }
+      return timeoutCallbacks.length;
+    }) as typeof window.setTimeout);
+    const clearTimeoutSpy = vi.spyOn(window, "clearTimeout").mockImplementation(() => {});
 
-    const signInButton = await screen.findByRole("button", { name: /sign in/i });
+    try {
+      const user = userEvent.setup();
+      render(<App />);
 
-    vi.useFakeTimers();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      await user.click(await screen.findByRole("button", { name: /sign in/i }));
+      expect(await screen.findByText("Authentication required.")).toBeInTheDocument();
+      expect(setTimeoutSpy).toHaveBeenCalled();
 
-    await user.click(signInButton);
+      await act(async () => {
+        timeoutCallbacks.at(-1)?.();
+      });
 
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    expect(screen.getByText("Authentication required.")).toBeInTheDocument();
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(3300);
-    });
-
-    expect(screen.queryByText("Authentication required.")).not.toBeInTheDocument();
+      expect(screen.queryByText("Authentication required.")).not.toBeInTheDocument();
+    } finally {
+      setTimeoutSpy.mockRestore();
+      clearTimeoutSpy.mockRestore();
+    }
   });
 
   it("loads the stream editor with API data", async () => {
