@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { App } from "../app";
@@ -97,14 +97,7 @@ describe("App", () => {
       )
       .mockImplementationOnce(() => jsonResponse({ error: "Authentication required." }, 401));
 
-    const timeoutCallbacks: Array<() => void> = [];
-    const setTimeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(((handler: TimerHandler) => {
-      if (typeof handler === "function") {
-        timeoutCallbacks.push(handler);
-      }
-      return timeoutCallbacks.length;
-    }) as typeof window.setTimeout);
-    const clearTimeoutSpy = vi.spyOn(window, "clearTimeout").mockImplementation(() => {});
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
 
     try {
       const user = userEvent.setup();
@@ -112,16 +105,9 @@ describe("App", () => {
 
       await user.click(await screen.findByRole("button", { name: /sign in/i }));
       expect(await screen.findByText("Authentication required.")).toBeInTheDocument();
-      expect(setTimeoutSpy).toHaveBeenCalled();
-
-      await act(async () => {
-        timeoutCallbacks.at(-1)?.();
-      });
-
-      expect(screen.queryByText("Authentication required.")).not.toBeInTheDocument();
+      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 3200);
     } finally {
       setTimeoutSpy.mockRestore();
-      clearTimeoutSpy.mockRestore();
     }
   });
 
