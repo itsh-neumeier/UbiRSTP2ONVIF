@@ -9,9 +9,9 @@ services:
       APP_ROLE: control-plane
       PORT: 8080
       DATA_DIR: /data
-      APP_BASE_URL: http://localhost:8080
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8080}
       ADMIN_USERNAME: admin
-      ADMIN_PASSWORD: change-me-now
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-me-now}
       ONVIF_DISCOVERY_ENABLED: "false"
     volumes:
       # Worker containers read stream definitions from this same data volume.
@@ -37,9 +37,9 @@ services:
       WORKER_STREAM_ID: replace-with-stream-id
       PORT: 8080
       DATA_DIR: /data
-      APP_BASE_URL: http://192.168.10.201:8080
-      ONVIF_USERNAME: onvif
-      ONVIF_PASSWORD: change-me-now
+      APP_BASE_URL: http://${WORKER_ADVERTISED_IP:-192.168.10.201}:8080
+      ONVIF_USERNAME: ${ONVIF_USERNAME:-onvif}
+      ONVIF_PASSWORD: ${ONVIF_PASSWORD:-change-me-now}
       ONVIF_DISCOVERY_ENABLED: "true"
       ONVIF_DISCOVERY_PORT: 3702
       GO2RTC_RTSP_PORT: 8554
@@ -51,9 +51,10 @@ services:
     security_opt:
       - no-new-privileges:true
     # Use an external macvlan/ipvlan network in production.
+    # Create it first and set WORKER_LAN_NETWORK_NAME in .env for Portainer stacks.
     networks:
       worker-lan:
-        ipv4_address: 192.168.10.201
+        ipv4_address: ${WORKER_ADVERTISED_IP:-192.168.10.201}
     restart: unless-stopped
 
   go2rtc-sidecar:
@@ -79,3 +80,4 @@ volumes:
 networks:
   worker-lan:
     external: true
+    name: ${WORKER_LAN_NETWORK_NAME:-worker-lan}

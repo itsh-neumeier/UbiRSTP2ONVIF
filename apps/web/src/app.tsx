@@ -139,7 +139,7 @@ function getLastEventLabel(stream: ApiStream, language: Language) {
 export function App() {
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
   const [language, setLanguage] = useState<Language>(getInitialLanguage);
-  const [version, setVersion] = useState("0.2.2");
+  const [version, setVersion] = useState("0.2.3");
   const [githubUrl, setGithubUrl] = useState("https://github.com/itsh-neumeier/UbiRSTP2ONVIF");
   const [baseUrl, setBaseUrl] = useState("");
   const [authenticated, setAuthenticated] = useState(false);

@@ -1,10 +1,18 @@
 name: Release
 
 on:
+  push:
+    tags:
+      - "v*"
   release:
     types:
       - published
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Semantic version tag (vX.Y.Z)"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -22,9 +30,21 @@ jobs:
       - name: Extract image metadata
         id: meta
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          elif [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          if ! echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Invalid release tag: $TAG"
+            exit 1
+          fi
           VERSION="${TAG#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER}/ubirstp2onvif" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR

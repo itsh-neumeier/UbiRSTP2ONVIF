@@ -242,7 +242,12 @@ export function buildWorkerDeploymentSpec(record: StreamRecord, config: AppConfi
       ]
     : ["    networks:", "      default: {}"];
   const externalNetworkSection = stream.worker.networkName
-    ? ["networks:", `  ${stream.worker.networkName}:`, "    external: true"]
+    ? [
+        "networks:",
+        `  ${stream.worker.networkName}:`,
+        "    external: true",
+        `    name: ${yamlScalar(stream.worker.networkName)}`
+      ]
     : [];
   const go2rtcConfig = [
     "streams:",
@@ -317,6 +322,8 @@ export function buildWorkerDeploymentSpec(record: StreamRecord, config: AppConfi
         ? [
             "Use a dedicated LAN IP per worker.",
             "Bind the worker to a macvlan or ipvlan network in Compose.",
+            `Create the external worker network before deploying (example: docker network create -d ipvlan --subnet 192.168.10.0/24 --gateway 192.168.10.1 -o parent=eth0 ${record.worker_network_name ?? "worker-lan"}).`,
+            "Do not use 'bridge' as the parent interface for macvlan/ipvlan. Use the real host NIC or a VLAN subinterface like eth0.10.",
             "Mount the same named data volume as the control-plane so the worker can read the selected stream definition.",
             "The bundled go2rtc sidecar shares the worker network namespace and serves RTSP on the same camera IP."
           ]

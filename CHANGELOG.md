@@ -7,6 +7,17 @@ and [Semantic Versioning 2.0.0](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-03-22
+
+### Fixed
+- Hardened worker external network handling for Portainer by supporting `WORKER_LAN_NETWORK_NAME` in Compose and preserving the explicit external network name.
+- Improved worker compose-preview output so external worker networks include an explicit `name` mapping and clearer deployment notes.
+
+### Changed
+- Expanded English and German README deployment guidance with explicit pre-creation commands for `ipvlan` worker networks and a warning against invalid `parent=bridge` usage.
+- Updated release workflow triggers to support semantic version tag pushes (`v*`) in addition to published releases.
+- Bumped project version to `0.2.3`.
+
 ## [0.2.2] - 2026-03-21
 
 ### Added

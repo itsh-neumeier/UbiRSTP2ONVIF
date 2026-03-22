@@ -74,16 +74,14 @@ CHANGELOG.md         Keep a Changelog structure
 services:
   control-plane:
     image: ghcr.io/itsh-neumeier/ubirstp2onvif:latest
-    build:
-      context: .
     ports:
       - "8080:8080"
     environment:
       PORT: 8080
       DATA_DIR: /data
-      APP_BASE_URL: http://localhost:8080
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8080}
       ADMIN_USERNAME: admin
-      ADMIN_PASSWORD: change-me-now
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-me-now}
       ONVIF_DISCOVERY_ENABLED: "false"
     volumes:
       - ubirstp2onvif-control-plane-data:/data
@@ -100,9 +98,9 @@ services:
       WORKER_STREAM_ID: replace-with-stream-id
       PORT: 8080
       DATA_DIR: /data
-      APP_BASE_URL: http://192.168.10.201:8080
-      ONVIF_USERNAME: onvif
-      ONVIF_PASSWORD: change-me-now
+      APP_BASE_URL: http://${WORKER_ADVERTISED_IP:-192.168.10.201}:8080
+      ONVIF_USERNAME: ${ONVIF_USERNAME:-onvif}
+      ONVIF_PASSWORD: ${ONVIF_PASSWORD:-change-me-now}
       ONVIF_DISCOVERY_ENABLED: "true"
       ONVIF_DISCOVERY_PORT: 3702
       GO2RTC_RTSP_PORT: 8554
@@ -113,7 +111,7 @@ services:
       - ubirstp2onvif-control-plane-data:/data
     networks:
       worker-lan:
-        ipv4_address: 192.168.10.201
+        ipv4_address: ${WORKER_ADVERTISED_IP:-192.168.10.201}
     restart: unless-stopped
 
   go2rtc-sidecar:
@@ -140,6 +138,7 @@ volumes:
 networks:
   worker-lan:
     external: true
+    name: ${WORKER_LAN_NETWORK_NAME:-worker-lan}
 ```
 
 ### 2. Open the Web UI
@@ -162,6 +161,19 @@ If you deploy this stack through Portainer, keep the control plane simple first:
 - when you use a published host port, keep `ports` and `PORT` aligned, for example `8080:8080`
 - if you intentionally map to a different public port such as `10081:8080`, set `APP_BASE_URL` to `http://<host-ip>:10081`
 - do not keep `build:` in the Portainer stack if you want to run the published GHCR image directly
+- pre-create the external worker network before enabling worker services
+
+Example to pre-create an ipvlan worker network:
+
+```bash
+docker network create -d ipvlan \
+  --subnet=192.168.10.0/24 \
+  --gateway=192.168.10.1 \
+  -o parent=eth0 \
+  worker-lan
+```
+
+Use your real host NIC or VLAN subinterface as parent (for example `eth0` or `eth0.10`), not `bridge`.
 
 Minimal Portainer control-plane example:
 
@@ -198,6 +210,7 @@ Worker-specific Portainer notes:
 - the control plane can generate per-camera compose previews, but Portainer still needs one worker service per camera identity
 - with the current DB-backed worker model, workers and control-plane must share the same persistent data volume
 - if your UniFi build only probes ONVIF on port `80`, run the worker with `PORT=80` and `APP_BASE_URL=http://<worker-ip>` (no port suffix)
+- map `WORKER_LAN_NETWORK_NAME` to the existing Docker network name in Portainer when your network is not literally named `worker-lan`
 
 ## Configuration
 
